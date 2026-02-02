@@ -14,14 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+# ... 상단 동일
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.10' # 3.9에서 3.10으로 업그레이드
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install --upgrade pip
+          pip install google-genai requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
+# ... 하단 동일
 
       - name: Run automation script
         env:
