@@ -2,10 +2,10 @@ name: Auto Blog Posting
 
 on:
   schedule:
-    # 한국 시간 기준 약 04시, 08시, 12시, 16시, 20시, 24시 (총 6회)
-    # UTC 기준이므로 -9시간을 계산합니다.
+    # 한국 시간(KST) 기준: 04시, 08시, 12시, 16시, 20시, 24시 (총 6회)
+    # UTC 기준 (KST-9): 19시, 23시, 03시, 07시, 11시, 15시
     - cron: '0 19,23,3,7,11,15 * * *'
-  workflow_dispatch: # 수동으로 즉시 실행하고 싶을 때 사용
+  workflow_dispatch: # [수동 실행] 버튼을 활성화합니다.
 
 jobs:
   build:
@@ -14,17 +14,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-# ... 상단 동일
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10' # 3.9에서 3.10으로 업그레이드
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install google-genai requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
-# ... 하단 동일
+          python -m pip install --upgrade pip
+          pip install google-generativeai requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
       - name: Run automation script
         env:
