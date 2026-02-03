@@ -4,115 +4,124 @@ from datetime import datetime, date
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
-# [1. 설정]
+# [1. 설정 정보]
 BLOG_ID = "195027135554155574"
 START_DATE = date(2026, 2, 2)
 
-ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY')
-SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY')
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-REFRESH_TOKEN = os.environ.get('BLOGGER_REFRESH_TOKEN')
-CLIENT_ID = os.environ.get('CLIENT_ID')
-CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
+# Secrets 불러오기 (공백 제거 처리 추가)
+ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '').strip()
+SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
+REFRESH_TOKEN = os.environ.get('BLOGGER_REFRESH_TOKEN', '').strip()
+CLIENT_ID = os.environ.get('CLIENT_ID', '').strip()
+CLIENT_SECRET = os.environ.get('CLIENT_SECRET', '').strip()
 
 # [2. 키워드 DB]
-HEALTH_KEYWORDS = ["브로콜리", "연어 오메가3", "토마토 라이코펜", "블루베리", "아보카도", "마늘", "양배추", "단백질 쉐이크"]
+HEALTH_KEYWORDS = ["브로콜리", "연어 오메가3", "토마토", "블루베리", "아보카도", "마늘", "양배추", "비타민D"]
 
+# [3. 날짜별 전략 로직 (정보 2 : 광고 1)]
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    if days_passed < 14: return {"total": 3, "ad_slots": [1], "desc": "1단계"}
-    elif days_passed < 30: return {"total": 4, "ad_slots": [1], "desc": "2단계"}
-    else: return {"total": 6, "ad_slots": [0, 2, 4], "desc": "3단계"}
+    if days_passed < 14:
+        return {"total": 3, "ad_slots": [1], "desc": "1단계 (정보2:광고1)"}
+    elif days_passed < 30:
+        return {"total": 4, "ad_slots": [1], "desc": "2단계 (정보3:광고1)"}
+    else:
+        return {"total": 6, "ad_slots": [0, 2, 4], "desc": "3단계 (수익극대화)"}
 
-# [3. 쿠팡 API - 인코딩 및 서명 해결]
+# [4. 쿠팡 API (403 에러 해결용 정밀 Signature)]
 def fetch_product(kw):
+    print(f"🔍 쿠팡에서 '{kw}' 상품 검색 시도...")
+    method = "GET"
     path = "/v2/providers/affiliate_open_api/apis/opensource/v1/search"
-    # 한국어 키워드를 쿠팡 규격에 맞게 인코딩
-    encoded_kw = urllib.parse.quote(kw)
-    query_string = f"keyword={encoded_kw}&limit=1"
+    query_string = f"keyword={urllib.parse.quote(kw)}&limit=1"
     url = f"https://link.coupang.com{path}?{query_string}"
     
     try:
-        method = "GET"
         timestamp = time.strftime('%y%m%dT%H%M%SZ', time.gmtime())
+        # 쿠팡 API 서명 생성 규격 엄수
         message = timestamp + method + path + query_string
-        
         signature = hmac.new(bytes(SECRET_KEY, "utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
         authorization = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={timestamp}, signature={signature}"
         
         headers = {"Authorization": authorization, "Content-Type": "application/json"}
-        res = requests.request(method, url, headers=headers, timeout=15)
+        res = requests.get(url, headers=headers, timeout=15)
         
-        # JSON이 아닌 에러 페이지가 왔을 때를 위한 처리
         if res.status_code != 200:
-            print(f"❌ 쿠팡 API 응답 오류 ({res.status_code}): {res.text[:100]}")
+            print(f"❌ 쿠팡 API 인증 실패 ({res.status_code}): {res.text[:100]}")
             return []
             
-        return res.json().get('data', {}).get('productData', [])
+        data = res.json()
+        return data.get('data', {}).get('productData', [])
     except Exception as e:
-        print(f"❌ 쿠팡 연동 오류: {str(e)}")
+        print(f"❌ 쿠팡 연동 에러: {str(e)}")
         return []
 
-# [4. 제미나이 글쓰기]
-def generate_health_post(post_type, keyword, product=None):
+# [5. 제미나이 글쓰기]
+def generate_content(post_type, keyword, product=None):
+    print(f"✍️ 제미나이가 {post_type} 글을 작성 중...")
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel('gemini-pro')
-        disclosure = "<br><br><p style='color:gray;font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
         
         if post_type == "AD":
-            prompt = f"건강 전문가로서 '{keyword}' 효능과 '{product['productName']}' 추천 리뷰를 HTML로 쓰세요. <table> 포함. 링크: <a href='{product['productUrl']}'>상세보기</a>"
-            footer = disclosure
+            prompt = f"전문 영양사로서 '{keyword}' 효능과 '{product['productName']}' 추천 이유를 HTML로 작성하세요. 반드시 <table>을 포함하세요. 구매링크: <a href='{product['productUrl']}'>👉 상세정보 확인</a>"
+            footer = "<br><br><p style='color:gray;font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
         else:
-            prompt = f"의학 에디터로서 '{keyword}' 전문 정보를 HTML로 쓰세요. <table> 포함. 링크는 제외."
+            prompt = f"건강 전문 에디터로서 '{keyword}'에 대한 깊이 있는 건강 가이드를 HTML로 작성하세요. <table>을 포함하고, 판매 링크는 절대 넣지 마세요."
             footer = ""
 
         response = model.generate_content(prompt)
         return response.text + footer
-    except: return None
+    except Exception as e:
+        print(f"❌ 제미나이 생성 에러: {str(e)}")
+        return None
 
-# [5. 블로그 발행]
+# [6. 블로그 발행 (발행 실패 원인 정밀 추적)]
 def post_to_blog(title, content):
+    print(f"📤 블로그에 '{title}' 발행 시도...")
     try:
         creds = Credentials(None, refresh_token=REFRESH_TOKEN, token_uri="https://oauth2.googleapis.com/token", 
                             client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
         service = build('blogger', 'v3', credentials=creds)
+        
         body = {'kind': 'blogger#post', 'title': title, 'content': content}
         res = service.posts().insert(blogId=BLOG_ID, body=body).execute()
         return res.get('url')
     except Exception as e:
-        print(f"❌ 블로그 발행 오류: {str(e)}")
+        print(f"❌ 블로그 API 에러: {str(e)}")
         return None
 
-# [6. 메인]
+# [7. 메인 실행 컨트롤러]
 def main():
     strat = get_daily_strategy()
     hour_idx = datetime.now().hour // 4 
     
+    # 1단계 정책 적용 (총 3회 실행)
     if hour_idx >= strat['total']:
-        print(f"💤 휴식 모드 (슬롯 {hour_idx})")
+        print(f"💤 현재 {hour_idx}번 슬롯은 휴식 모드입니다.")
         return
 
     is_ad = hour_idx in strat['ad_slots']
     post_type = "AD" if is_ad else "INFO"
     kw = random.choice(HEALTH_KEYWORDS)
     
-    print(f"📢 {post_type} 발행 시작 (키워드: {kw})")
+    print(f"📢 {strat['desc']} 가동 - {post_type} 모드 (키워드: {kw})")
     
     if post_type == "AD":
         products = fetch_product(kw)
         if products:
-            html = generate_health_post("AD", kw, products[0])
+            html = generate_content("AD", kw, products[0])
             if html:
-                url = post_to_blog(f"[추천] {kw} 관리에 꼭 필요한 아이템", html)
-                if url: print(f"✅ 발행 성공: {url}")
+                url = post_to_blog(f"[건강추천] {kw} 관리를 위한 최고의 선택", html)
+                if url: print(f"✅ 광고글 발행 성공: {url}")
         else:
-            print("📦 상품을 찾지 못해 발행을 건너뜁니다.")
+            print("📦 상품 검색 실패로 발행을 중단합니다.")
     else:
-        html = generate_health_post("INFO", kw)
+        html = generate_content("INFO", kw)
         if html:
-            url = post_to_blog(f"건강 가이드: {kw}의 놀라운 효능", html)
-            if url: print(f"✅ 발행 성공: {url}")
+            url = post_to_blog(f"필독 가이드: {kw}의 놀라운 효능", html)
+            if url: print(f"✅ 정보글 발행 성공: {url}")
 
 if __name__ == "__main__":
     main()
