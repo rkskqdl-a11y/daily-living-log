@@ -5,129 +5,130 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-# [1. 설정 및 환경 변수]
+# ==========================================
+# [1. 설정 및 환경 변수 안전 검사]
+# ==========================================
 BLOG_ID = os.environ.get('BLOGGER_BLOG_ID', '195027135554155574')
 START_DATE = date(2026, 2, 2)
 
-# Secrets 인증 정보
-ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '').strip()
-SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
-REFRESH_TOKEN = os.environ.get('BLOGGER_REFRESH_TOKEN', '').strip()
-CLIENT_ID = os.environ.get('BLOGGER_CLIENT_ID', '').strip()
-CLIENT_SECRET = os.environ.get('BLOGGER_CLIENT_SECRET', '').strip()
+# Secrets 불러오기 (환경 변수 이름을 유연하게 체크합니다)
+ACCESS_KEY = (os.environ.get('COUPANG_ACCESS_KEY') or '').strip()
+SECRET_KEY = (os.environ.get('COUPANG_SECRET_KEY') or '').strip()
+GEMINI_API_KEY = (os.environ.get('GEMINI_API_KEY') or '').strip()
+REFRESH_TOKEN = (os.environ.get('BLOGGER_REFRESH_TOKEN') or os.environ.get('REFRESH_TOKEN') or '').strip()
+CLIENT_ID = (os.environ.get('BLOGGER_CLIENT_ID') or os.environ.get('CLIENT_ID') or '').strip()
+CLIENT_SECRET = (os.environ.get('BLOGGER_CLIENT_SECRET') or os.environ.get('CLIENT_SECRET') or '').strip()
 
-# [2. 거대 키워드 DB (300+ 리스트)]
+# 인증 정보 유효성 검사 로그
+if not CLIENT_ID: print("⚠️ 경고: CLIENT_ID가 비어있습니다. GitHub Secrets를 확인하세요.")
+if not REFRESH_TOKEN: print("⚠️ 경고: REFRESH_TOKEN이 비어있습니다. GitHub Secrets를 확인하세요.")
+
+# ==========================================
+# [2. 거대 키워드 리스트 (300개)]
+# ==========================================
 HEALTH_KEYWORDS = [
-    # 채소/과일 (100개)
-    "브로콜리 설포라판", "블루베리 안토시아닌", "토마토 라이코펜", "아보카도 불포화지방", "비트 식이섬유",
-    "아스파라거스 아스파라긴산", "케일 해독주스", "시금치 루테인", "마늘 알리신", "양파 퀘르세틴",
-    "사과 펙틴 효능", "바나나 마그네슘", "키위 소화효소", "석류 에스트로겐", "자몽 인슐린",
-    "수박 시트룰린", "딸기 항산화", "포도 레스베라트롤", "레몬 비타민C", "파인애플 브로멜라인",
-    "양배추 비타민U", "당근 베타카로틴", "오이 수분보충", "단호박 부기제거", "고구마 식이섬유",
-    "청경채 칼슘", "파프리카 비타민", "콜리플라워 저칼로리", "가지 안토시아닌", "무 소화촉진",
-    "미나리 중금속배출", "쑥 면역력", "달래 춘곤증", "냉이 단백질", "고사리 식이섬유",
-    "연근 탄닌", "우엉 사포닌", "마 뮤신", "도라지 사포닌", "더덕 이눌린",
+    # 과일/채소/슈퍼푸드 (100개)
+    "브로콜리 설포라판", "블루베리 안토시아닌", "토마토 라이코펜", "아보카도 불포화지방", "비트 식이섬유", "아스파라거스", "케일 해독", "시금치 루테인", "마늘 알리신", "양파 퀘르세틴",
+    "사과 아침", "바나나 수면", "키위 소화", "석류 갱년기", "자몽 다이어트", "수박 이뇨", "딸기 비타민", "포도 심장", "레몬 해독", "파인애플 효소",
+    "양배추 위건강", "당근 시력", "오이 수분", "단호박 부기", "고구마 변비", "청경채", "파프리카", "콜리플라워", "가지", "무 소화",
+    "미나리 간", "쑥", "달래", "냉이", "고사리", "연근", "우엉", "마 뮤신", "도라지", "더덕",
+    "상추 불면증", "깻잎 철분", "부추 정력", "미역 요오드", "다시마", "톳", "파래", "김", "매생이", "감태",
+    "망고", "파파야", "코코넛", "무화과", "대추", "밤", "호두", "아몬드", "캐슈넛", "피스타치오",
+    "브라질너트", "피칸", "해바라기씨", "호박씨", "치아씨드", "햄프씨드", "귀리 베타글루칸", "현미", "보리", "메밀",
+    "율무", "조", "수수", "퀴노아", "병아리콩", "렌틸콩", "검은콩", "완두콩", "강낭콩", "작두콩",
+    "생강 감기", "울금 커큐민", "계피 혈당", "고추 캡사이신", "후추", "산초", "허브", "바질", "로즈마리", "라벤더",
     
     # 육류/해산물/단백질 (100개)
-    "닭가슴살 단백질", "소고기 아연", "돼지고기 비타민B1", "오리고기 레시틴", "양고기 카르니틴",
-    "연어 오메가3", "고등어 DHA", "굴 남성호르몬", "전복 타우린", "장어 비타민A",
-    "멸치 칼슘", "새우 키토산", "꽃게 타우린", "문어 피로회복", "오징어 셀레늄",
-    "달걀 콜린", "검은콩 탈모예방", "병아리콩 식물성단백질", "렌틸콩 철분", "두부 이소플라본",
-    "참치 셀레늄", "대구 저지방고단백", "명태 메티오닌", "갈치 필수아미노산", "조기 단백질",
-    "골뱅이 피부미용", "꼬막 철분", "멍게 바나듐", "해삼 사포닌", "미역 요오드",
-    "다시마 알긴산", "톳 칼슘", "매생이 철분", "파래 칼륨", "김 비타민U",
+    "닭가슴살", "소고기 단백질", "돼지고기 안심", "오리고기", "양고기", "연어 오메가3", "고등어", "굴 아연", "전복 타우린", "장어",
+    "멸치 칼슘", "새우 키토산", "꽃게", "문어", "오징어", "달걀 콜린", "두부", "낫또", "청국장", "어묵",
+    "명태", "대구", "갈치", "조기", "임연수", "가자미", "꽁치", "정배기", "숭어", "방어",
+    "바지락", "재첩", "홍합", "꼬막", "가리비", "멍게", "해삼", "개불", "소라", "우렁이",
+    "소고기 사태", "돼지 앞다리살", "닭다리살", "닭안심", "오리훈제", "추어탕", "염소고기", "사골", "도가니", "우족",
     
-    # 영양제/증상관리 (100개+)
-    "오메가3 고르는법", "비타민D 결핍", "마그네슘 눈떨림", "유산균 유익균", "루테인 지아잔틴",
-    "콜라겐 흡수율", "밀크씨슬 실리마린", "보스웰리아 관절염", "쏘팔메토 전립선", "홍삼 사포닌",
-    "프로폴리스 항균", "아르기닌 혈행개선", "크릴오일 인지질", "스피루리나 클로렐라", "코엔자임Q10",
-    "고혈압 식단", "당뇨 혈당관리", "고지혈증 혈관청소", "지방간 개선", "역류성 식도염",
-    "안구건조증 완화", "변비 해결음식", "불면증 수면음식", "만성피로 비타민B", "탈모 맥주효모",
-    "거북목 스트레칭", "허리디스크 운동", "무릎 관절음식", "뱃살 다이어트", "간헐적 단식",
-    "저탄고지 식단", "대사증후군 예방", "골다공증 칼슘", "치매 예방음식", "아연 면역력",
-    "셀레늄 항암", "칼륨 나트륨배출", "철분 빈혈예방", "엽산 임산부", "판토텐산 피부"
-    # ... 리스트는 실행 시 무작위로 선택되어 수백 개 조합을 생성합니다.
+    # 영양제/증상/생활습관 (100개)
+    "비타민C 추천", "비타민D 햇빛", "종합영양제", "유산균 고르는법", "오메가3 순도", "마그네슘 부족", "칼슘 흡수율", "아연 면역", "철분제 비타민C", "엽산",
+    "밀크씨슬", "보스웰리아", "콘드로이친", "글루코사민", "엠에스엠(MSM)", "쏘팔메토", "루테인", "코엔자임Q10", "아르기닌", "카르니틴",
+    "스피루리나", "클로렐라", "프로폴리스", "로열젤리", "화분", "맥주효모 탈모", "비오틴", "콜라겐", "히알루론산", "엘라스틴",
+    "고혈압 식단", "당뇨 혈당", "고지혈증 혈관", "지방간 음식", "위염에 좋은", "장건강", "면역력 높이는", "피로회복", "눈건강", "뼈건강",
+    "관절건강", "혈행개선", "기억력", "집중력", "스트레스 해소", "우울증 음식", "불면증 수면", "피부미용", "다이어트 식단", "해독주스",
+    "반신욕 효과", "족욕", "명상", "복식호흡", "스트레칭", "유산소 운동", "근력 운동", "스쿼트", "플랭크", "걷기 운동",
+    "수분 섭취", "충분한 수면", "스트레스 관리", "금연 효과", "금주", "자세 교정", "거북목 예방", "허리 통증", "무릎 통증", "어깨 결림",
+    "대사증후군", "골다공증 예방", "빈혈", "부종 제거", "냉증", "갱년기 증상", "치매 예방", "구강 건강", "탈모 예방", "아토피"
 ]
 
 # ==========================================
-# [3. 기술 모듈: 이미지 & 상품 검색]
+# [3. 핵심 기술 모듈]
 # ==========================================
 def get_image_html(kw):
     search_term = urllib.parse.quote(kw)
     img_url = f"https://source.unsplash.com/featured/?{search_term},health"
-    return f"<div style='margin-bottom:30px; text-align:center;'><img src='{img_url}' style='max-width:100%; border-radius:12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'><br><small style='color:#888;'>※ {kw} 관련 이미지 가이드</small></div>"
+    return f"<div style='margin-bottom:25px; text-align:center;'><img src='{img_url}' style='max-width:100%; border-radius:15px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'><br><small style='color:#777;'>※ {kw} 이미지 참고</small></div>"
 
 def fetch_product(kw):
-    method = "GET"
     path = "/v2/providers/affiliate_open_api/apis/opensource/v1/search"
     query_string = f"keyword={urllib.parse.quote(kw)}&limit=1"
     url = f"https://link.coupang.com{path}?{query_string}"
     try:
         timestamp = time.strftime('%y%m%dT%H%M%SZ', time.gmtime())
-        message = timestamp + method + path + query_string
+        message = timestamp + "GET" + path + query_string
         signature = hmac.new(SECRET_KEY.encode('utf-8'), message.encode('utf-8'), hashlib.sha256).hexdigest()
-        authorization = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={timestamp}, signature={signature}"
-        res = requests.get(url, headers={"Authorization": authorization, "Content-Type": "application/json"}, timeout=15)
+        auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={timestamp}, signature={signature}"
+        res = requests.get(url, headers={"Authorization": auth, "Content-Type": "application/json"}, timeout=15)
         return res.json().get('data', {}).get('productData', []) if res.status_code == 200 else []
     except: return []
 
-# ==========================================
-# [4. AI 지능형 콘텐츠 생성 (404 방어 로직 포함)]
-# ==========================================
 def generate_content(post_type, keyword, product=None):
     genai.configure(api_key=GEMINI_API_KEY)
-    
-    # [기술 참고] 가용한 최신 모델을 자동으로 탐색합니다.
     try:
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         target_model = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
         model = genai.GenerativeModel(target_model)
-    except:
-        print("❌ 모델 리스트를 가져오지 못했습니다. 기본값으로 시도합니다."); model = genai.GenerativeModel('gemini-1.5-flash')
+    except: model = genai.GenerativeModel('gemini-1.5-flash')
 
-    persona = "당신은 15년 경력의 보건의료 전문 에디터입니다. 객관적 수치와 의학적 근거를 바탕으로 HTML 글을 작성하세요."
+    persona = "당신은 건강 의학 전문 에디터입니다. 신뢰감 있고 전문적인 문체로 HTML 포스팅을 작성하세요."
     
     if post_type == "AD":
-        prompt = f"{persona} 주제: '{keyword}' 효능 분석 및 '{product['productName']}' 추천 리뷰. 1,500자 이상 HTML로 작성. <table> 필수 포함. 링크: <a href='{product['productUrl']}'>▶ 상세정보 확인하기</a>"
+        prompt = f"{persona} 주제: '{keyword}'의 효능과 '{product['productName']}' 추천. 1,500자 이상 HTML로 작성. <table> 포함. 링크: <a href='{product['productUrl']}'>▶ 최저가 상세정보 확인</a>"
         footer = "<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
     else:
-        prompt = f"{persona} 주제: '{keyword}'의 영양학적 가치와 섭취 가이드. 1,500자 이상 HTML로 작성. <table> 필수 포함. 판매 링크 절대 금지."
+        prompt = f"{persona} 주제: '{keyword}'에 대한 정밀 가이드. 1,500자 이상 HTML로 작성. <table> 포함. 판매 링크 절대 금지."
         footer = ""
 
     try:
-        response = model.generate_content(prompt)
-        # 마크다운 기호 제거 기술 적용
-        body_text = re.sub(r'\*\*|##|`', '', response.text)
-        return get_image_html(keyword) + body_text + footer
-    except Exception as e:
-        print(f"❌ 생성 실패: {e}"); return None
+        res = model.generate_content(prompt).text
+        # 기술 참고: 불필요한 마크다운 기호 제거
+        clean_text = re.sub(r'\*\*|##|`|#', '', res)
+        return get_image_html(keyword) + clean_text + footer
+    except: return None
 
-# ==========================================
-# [5. 블로그 발행]
-# ==========================================
-def publish(title, content):
+def post_to_blog(title, content):
     try:
+        # 에러 발생 지점 방어 로직
+        if not CLIENT_ID or not CLIENT_SECRET:
+            raise ValueError("CLIENT_ID 또는 CLIENT_SECRET이 설정되지 않았습니다.")
+            
         creds = Credentials(None, refresh_token=REFRESH_TOKEN, token_uri="https://oauth2.googleapis.com/token", 
                             client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
-        if not creds.valid: creds.refresh(Request())
+        if not creds.valid:
+            creds.refresh(Request())
+            
         service = build('blogger', 'v3', credentials=creds)
         res = service.posts().insert(blogId=BLOG_ID, body={"title": title, "content": content}).execute()
         return res.get('url')
     except Exception as e:
-        print(f"❌ 발행 에러: {e}"); return None
+        print(f"❌ 발행 에러: {str(e)}")
+        return None
 
 # ==========================================
-# [6. 메인 실행]
+# [4. 메인 컨트롤러]
 # ==========================================
 def main():
     hour_idx = datetime.now().hour // 4 
-    if hour_idx >= 3: # 1단계: 하루 3회 발행 (KST 12:00~20:00 사이 집중)
-        print(f"💤 휴식 슬롯({hour_idx}).")
+    if hour_idx >= 3: 
+        print(f"💤 휴식 모드 (슬롯 {hour_idx})")
         return
 
-    # 정보(0, 2) : 광고(1) 비율 유지
-    is_ad = (hour_idx == 1)
+    is_ad = (hour_idx == 1) # 오후 4시경(Index 1)만 광고글
     post_type = "AD" if is_ad else "INFO"
     kw = random.choice(HEALTH_KEYWORDS)
     
@@ -138,13 +139,17 @@ def main():
         if products:
             html = generate_content("AD", kw, products[0])
             if html:
-                url = publish(f"[추천] {kw} 건강 관리를 위한 스마트한 선택", html)
-                if url: print(f"✅ 광고글 성공: {url}")
-    else:
+                url = post_to_blog(f"[추천] {kw} 건강 관리를 위한 선택", html)
+                if url: print(f"✅ 발행 성공: {url}")
+        else:
+            print("📦 상품 검색 실패. 정보글로 자동 전환.")
+            post_type = "INFO"
+
+    if post_type == "INFO":
         html = generate_content("INFO", kw)
         if html:
-            url = publish(f"전문 가이드: {kw}에 대한 의학적 분석", html)
-            if url: print(f"✅ 정보글 성공: {url}")
+            url = post_to_blog(f"전문 가이드: {kw}의 놀라운 효능", html)
+            if url: print(f"✅ 발행 성공: {url}")
 
 if __name__ == "__main__":
     main()
