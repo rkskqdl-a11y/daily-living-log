@@ -53,11 +53,12 @@ b_styles = ["가이드형", "체크리스트형", "비교형", "팩트체크형"
 o_styles = ["실천형", "요약형", "안부형", "습관형", "응원형", "소통형", "예고형", "마인드형", "인사형", "질문형"]
 
 # ==========================================
-# [4. 안정성 100% GET API 모듈] - 보강 완료
+# [4. 안정성 100% GET API 및 HMAC 수정] - 보강
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
-    """GET 방식은 본문이 없어 HMAC 서명 오류가 거의 발생하지 않습니다."""
+    """GET 방식의 인증 형식을 쿠팡 공식 규격에 맞춰 정밀하게 보정합니다."""
     method = "GET"
+    # API 게이트웨이의 전체 경로 구성
     full_path = f"/v2/providers/affiliate_open_api/apis/openapi{path}"
     url = f"https://api-gateway.coupang.com{full_path}"
     if query_string:
@@ -65,9 +66,11 @@ def fetch_coupang_get_api(path, query_string=""):
 
     try:
         ts = time.strftime('%y%m%dT%H%M%SZ', time.gmtime())
-        # GET 서명 규격: timestamp + method + path + query_string
-        msg = ts + method + full_path + (f"?{query_string}" if query_string else "")
+        # [해결] 서명용 메시지(STS)에서 물음표(?)는 제외하고 쿼리 스트링만 결합해야 함
+        msg = ts + method + full_path + query_string
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+        
+        # [해결] Authorization 헤더의 콤마 뒤 공백을 공식 문서 예시와 100% 일치시킴
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={ts}, signature={sig}"
         
         headers = {"Authorization": auth, "Content-Type": "application/json"}
@@ -122,17 +125,17 @@ def main():
     print(f"📢 {strategy['desc']} - 현재 슬롯: {hour_idx} | 발행 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # 1순위: 골드박스 (특가 상품) 시도
+        # 1순위: 골드박스 (특가 상품)
         print("🔄 [AD] 골드박스 특가 상품 가져오는 중...")
         products = fetch_coupang_get_api("/products/goldbox")
         
-        # 2순위: 골드박스 실패 시 헬스/건강식품(1024) 베스트 상품 시도
+        # 2순위: 건강식품(1024) 카테고리 베스트
         if not products:
             print("🔄 [AD] 건강식품 베스트 상품 가져오는 중...")
             products = fetch_coupang_get_api("/products/bestcategories/1024", "limit=10")
             
         if products:
-            prod = products[0]
+            prod = products[random.randint(0, len(products)-1)]
             print(f"✅ [AD] 상품 확보 성공: {prod['productName']}")
             ts, html = generate_content("AD", prod['productName'], prod)
             ad_title = f"[추천] {ts} {prod['productName']} 분석 및 가이드"
