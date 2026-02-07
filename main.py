@@ -1,6 +1,6 @@
 import os, hmac, hashlib, requests, time, json, random, re
 from datetime import datetime, date
-# 최신 SDK 사용 (구형 google.generativeai 임포트 제거로 충돌 방지)
+# 최신 SDK: pip install google-genai 필수 (구형 google.generativeai 제거)
 from google import genai 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -31,11 +31,12 @@ STYLE_FIX = """
 </style>
 """
 
-# [검토 완료] 사용자 요청: -1 설정 시 수동 광고 테스트 모드 강제 진입
+# [확실한 수정] 수동 광고 테스트를 위해 모든 시간대를 AD 모드로 개방
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    if days_passed <= -1: 
-        return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 수동 테스트 모드: 광고 강제 발행"}
+    # 사용자님이 원하시는 테스트를 위해 조건을 >= -1로 수정 (현재 5일차이므로 항상 참)
+    if days_passed >= -1: 
+        return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행 중"}
     elif days_passed <= 30:
         return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
     else:
@@ -60,7 +61,7 @@ def fetch_coupang_get_api(path, query_string=""):
         msg = ts + method + full_path + query_string
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # [확인] signed-date 헤더 적용으로 401 에러 해결 유지
+        # timestamp -> signed-date 적용 성공 유지
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={ts}, signature={sig}"
         headers = {"Authorization": auth, "Content-Type": "application/json"}
         res = requests.get(url, headers=headers, timeout=15)
@@ -77,16 +78,16 @@ def fetch_coupang_get_api(path, query_string=""):
 # ==========================================
 def generate_content(post_type, keyword, product=None):
     try:
-        # [해결] 404를 방지하기 위해 v1 정식 API 버전 사용 및 클라이언트 초기화 정밀화
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        # 모델 ID에서 'models/' 접두사 절대 금지 (SDK가 자동으로 처리함)
+        # [해결] 404 방지를 위해 정식 v1 버전 명시 및 클라이언트 초기화
+        client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1'})
+        # [해결] 모델명에서 'models/' 접두사 절대 금지
         model_id = "gemini-1.5-flash"
 
         if post_type == "AD" and product:
-            prompt = f"전문 라이프스타일 에디터로서 '{product['productName']}' 제품의 특징과 매력을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 구매 링크: {product['productUrl']}"
+            prompt = f"전문 라이프스타일 에디터로서 '{product['productName']}' 제품의 특징을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 구매 링크: {product['productUrl']}"
             img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
             
-            # API 호출 (SDK 기본 설정을 사용하여 경로 충돌 방지)
+            # API 호출
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
             
@@ -94,14 +95,13 @@ def generate_content(post_type, keyword, product=None):
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
             content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
         else:
-            prompt = f"전문 건강 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
+            prompt = f"전문 건강 에디터로서 '{keyword}' 주제의 HTML 가이드 글을 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
             content = STYLE_FIX + re.sub(r'\*\*|##|`|#', '', res_text)
         
         return "전문 가이드:", content
     except Exception as e:
-        # 에러 발생 시 상세 로그 출력
         print(f"❌ AI 생성 실패 상세: {str(e)}")
         return None, None
 
@@ -124,7 +124,7 @@ def main():
     print(f"📢 {strategy['desc']} - 슬롯: {hour_idx} | 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # [확인] 스탠리 텀블러 등 상품 확보 성공 로직 유지
+        # 상품 확보 시도
         products = fetch_coupang_get_api("/products/goldbox")
         if not products:
             products = fetch_coupang_get_api("/products/bestcategories/1016", "limit=10")
@@ -141,7 +141,7 @@ def main():
     kw = random.choice(KEYWORDS["INFO"])
     print(f"📘 [INFO] 주제: {kw}")
     prefix, html = generate_content("INFO", kw)
-    if html and (url := post_to_blog(f"{kw} 완벽 관리 비법", html)):
+    if html and (url := post_to_blog(f"{kw} 완벽 관리 비결", html)):
         print(f"✅ 정보글 발행 성공: {url}")
 
 if __name__ == "__main__":
