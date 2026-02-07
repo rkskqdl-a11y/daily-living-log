@@ -1,5 +1,7 @@
 import os, hmac, hashlib, requests, time, json, random, re
 from datetime import datetime, date
+# [성공 포인트] 애드픽 코드에서 사용한 라이브러리 규격 그대로 사용
+import google.generativeai as genai
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -8,7 +10,7 @@ from googleapiclient.discovery import build
 # [1. 시스템 설정]
 # ==========================================
 BLOG_ID = "195027135554155574"
-START_DATE = date(2026, 2, 2) 
+START_DATE = datetime(2026, 2, 2) # 애드픽 코드 방식인 datetime으로 통일
 
 CLIENT_ID = os.environ.get('CLIENT_ID', '').strip()
 CLIENT_SECRET = os.environ.get('CLIENT_SECRET', '').strip()
@@ -19,7 +21,7 @@ SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
 
 STYLE_FIX = """
 <style>
-    h1, h2, h3 { line-height: 1.6!important; margin-bottom: 25 Korea!important; color: #222; word-break: keep-all; }
+    h1, h2, h3 { line-height: 1.6!important; margin-bottom: 25px!important; color: #222; word-break: keep-all; }
     .table-container { width: 100%; overflow-x: auto; margin: 30px 0; border: 1px solid #eee; border-radius: 8px; }
     table { width: 100%; min-width: 600px; border-collapse: collapse; line-height: 1.6; font-size: 15px; }
     th, td { border: 1px solid #f0f0f0; padding: 15px; text-align: left; }
@@ -29,17 +31,17 @@ STYLE_FIX = """
 </style>
 """
 
+# [수동 테스트] 2단계 수익 테스트 모드 강제 진입
 def get_daily_strategy():
-    # [수동 테스트용] 현재 무조건 광고 발행 모드
-    return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 수동 테스트 모드: 광고 강제 발행"}
-
-KEYWORDS = {
-    "INFO": ["사무용 의자 고르는 법", "인체공학 의자의 중요성", "바른 자세 유지법"],
-    "AD": ["쿠팡 의자 추천", "사무용 의자 베스트", "가성비 의자 리뷰"]
-}
+    days_diff = (datetime.now() - START_DATE).days
+    # 수동 테스트를 위해 현재 날짜(5일차)에서 AD 모드가 작동하도록 설정
+    if days_diff <= 10: 
+        return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 애드픽 로직 이식 테스트 모드"}
+    else:
+        return {"ad_slots": [1, 4], "desc": "📈 2단계: 수익 테스트"}
 
 # ==========================================
-# [2. 쿠팡 API 엔진]
+# [2. 쿠팡 API 엔진 (인증 성공 로직)]
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
     method = "GET"
@@ -57,104 +59,84 @@ def fetch_coupang_get_api(path, query_string=""):
         if res.status_code == 200:
             return res.json().get('data', [])
         return None
-    except Exception as e:
-        print(f"❌ 쿠팡 연결 오류: {e}")
+    except:
         return None
 
 # ==========================================
-# [3. AI 생성 엔진 (v1 Stable 경로로 수정)]
+# [3. 성공한 애드픽 로직 기반 AI 엔진]
 # ==========================================
-def generate_content_final(post_type, keyword, product=None):
-    """
-    v1beta에서 발생하던 404 에러를 해결하기 위해 
-    2026년 정식 버전인 v1 엔드포인트를 사용합니다.
-    """
-    # [핵심] 정식 v1 경로 사용
-    base_url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
-    url = f"{base_url}?key={GEMINI_API_KEY}"
-    
-    if post_type == "AD" and product:
-        prompt = f"전문 리뷰어로서 '{product['productName']}' 제품의 장점을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 구매 링크: {product['productUrl']}"
-        img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
-    else:
-        prompt = f"건강/가구 전문 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
-        img_html = ""
-
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-
+def generate_content_adpick_style(post_type, keyword, product=None):
+    """성공한 애드픽 코드의 제미나이 호출 방식을 100% 그대로 적용했습니다."""
     try:
-        # API 요청
-        response = requests.post(url, json=payload, timeout=40)
-        res_json = response.json()
-        
-        # 404 에러가 여전히 난다면 모델명을 다르게 시도 (Fallback)
-        if response.status_code == 404:
-            print("🔄 v1 경로 실패, 대안 모델로 재시도 중...")
-            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
-            response = requests.post(url, json=payload, timeout=40)
-            res_json = response.json()
+        # [성공 로직 1] SDK 설정 및 모델 선언
+        genai.configure(api_key=GEMINI_API_KEY)
+        # [성공 로직 2] 애드픽 코드에서 성공한 모델명 그대로 사용
+        model = genai.GenerativeModel('models/gemini-2.5-flash')
 
-        # 데이터 파싱
-        if 'candidates' in res_json:
-            res_text = res_json['candidates'][0]['content']['parts'][0]['text']
-            content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
-            if post_type == "AD":
-                content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
-            return "전문 가이드:", content
+        persona = "전문 건강 큐레이터로서 다정하고 친근한 말투(~해요, ✨💖)로 작성하세요."
+
+        if post_type == "AD" and product:
+            prompt = f"{persona} 주제: '{product['productName']}' 리뷰. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 [/BODY] 형식 엄수. 제품 링크: {product['productUrl']}"
         else:
-            print(f"⚠️ AI 응답 구조 오류: {res_json}")
-            return None, None
-            
+            prompt = f"{persona} 주제: '{keyword}' 가이드. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 [/BODY] 형식 엄수."
+
+        # [성공 로직 3] 콘텐츠 생성 및 텍스트 추출
+        res = model.generate_content(prompt).text
+        
+        # [성공 로직 4] 태그 기반 파싱
+        title = res.split('[TITLE]')[1].split('[/TITLE]')[0].strip()
+        body = res.split('[BODY]')[1].split('[/BODY]')[0].strip()
+        
+        # HTML 가공
+        clean_body = re.sub(r'\*\*|##|`|#', '', body)
+        body_html = "".join([f"<p style='margin-bottom:32px; line-height:1.8;'>{line.strip()}</p>" for line in clean_body.split('\n') if line.strip()])
+        
+        if post_type == "AD":
+            img_html = f'<div style="text-align:center; margin:30px 0;"><img src="{product["productImage"]}" class="prod-img"></div>'
+            btn_html = f'<div style="text-align:center; margin-top:30px;"><a href="{product["productUrl"]}" style="background:#ff69b4; color:#fff; padding:15px 30px; text-decoration:none; border-radius:30px; font-weight:bold;">✨ 제품 보러가기 ✨</a></div>'
+            return title, STYLE_FIX + img_html + body_html + btn_html + "<p style='color:gray; font-size:12px; text-align:center;'>쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
+        
+        return title, STYLE_FIX + body_html
     except Exception as e:
-        print(f"❌ AI 생성 최종 실패: {str(e)}")
+        print(f"❌ AI 생성 오류: {e}")
         return None, None
 
-# ==========================================
-# [4. 블로그 포스팅 및 실행]
-# ==========================================
 def post_to_blog(title, content):
     try:
         creds = Credentials(None, refresh_token=REFRESH_TOKEN, token_uri="https://oauth2.googleapis.com/token", client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
         if not creds.valid: creds.refresh(Request())
         service = build('blogger', 'v3', credentials=creds)
-        res = service.posts().insert(blogId=BLOG_ID, body={"title": title, "content": content}).execute()
-        return res.get('url')
-    except Exception as e:
-        print(f"❌ 블로그 발행 실패: {e}")
-        return None
+        service.posts().insert(blogId=BLOG_ID, body={"title": title, "content": content}).execute()
+        return True
+    except:
+        return False
 
+# ==========================================
+# [4. 메인 컨트롤러]
+# ==========================================
 def main():
-    print(f"📢 [TEST] 광고 강제 발행 모드 가동 중 (2026-v1-Stable)")
+    strategy = get_daily_strategy()
+    print(f"🚀 [엔진 가동] {strategy['desc']}")
     
-    # 1. 상품 확보 (키루에 의자 등)
+    # 상품 확보 (오메가3 등)
     products = fetch_coupang_get_api("/products/goldbox")
     if not products:
-        products = fetch_coupang_get_api("/products/bestcategories/1015", "limit=10") # 홈인테리어
+        products = fetch_coupang_get_api("/products/bestcategories/1024", "limit=10")
         
     if products:
-        prod = products[0]
-        print(f"✅ 상품 확보: {prod['productName'][:30]}...")
+        prod = products[random.randint(0, len(products)-1)]
+        print(f"✅ 상품 확보: {prod['productName']}")
         
-        # 2. AI 본문 생성
-        prefix, html = generate_content_final("AD", prod['productName'], prod)
-        
-        if html:
-            # 3. 블로그 포스팅
-            title = f"[추천] {prod['productName'][:40]} 솔직 분석 및 가이드"
-            url = post_to_blog(title, html)
-            if url:
-                print(f"🚀 [성공] 광고글 발행 완료: {url}")
+        title, html = generate_content_adpick_style("AD", prod['productName'], prod)
+        if title and html:
+            if post_to_blog(title, html):
+                print(f"🎉 [최종] 성공적으로 발행되었습니다!")
                 return
 
-    # 실패 시 예비 정보글
-    print("⚠️ 광고글 발행 실패로 정보글 전환 시도...")
-    kw = random.choice(KEYWORDS["INFO"])
-    prefix, html = generate_content_final("INFO", kw)
-    if html:
-        post_to_blog(f"{kw} 완벽 가이드", html)
-        print("✅ 정보글 발행 완료")
+    print("⚠️ 광고글 실패로 정보글 전환")
+    title, html = generate_content_adpick_style("INFO", "공복 혈당 관리법")
+    if title and html:
+        post_to_blog(title, html)
 
 if __name__ == "__main__":
     main()
