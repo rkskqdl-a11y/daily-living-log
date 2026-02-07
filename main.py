@@ -1,6 +1,6 @@
 import os, hmac, hashlib, requests, time, json, random, re
 from datetime import datetime, date
-# 최신 SDK: pip install google-genai
+# 최신 SDK: pip install google-genai 필수
 from google import genai 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -31,11 +31,11 @@ STYLE_FIX = """
 </style>
 """
 
-# [수정] 수동 광고 테스트를 위한 전략 설정
+# [수정] 사용자 요청에 따른 수동 광고 테스트 전략
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    # 테스트를 위해 days_passed가 10일 이하일 때 모든 슬롯을 광고로 개방 (현재 5일차)
-    if days_passed <= 10: 
+    # 사용자 요청: -1로 설정하여 수동 광고 테스트 모드 강제 진입
+    if days_passed <= -1: 
         return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행 중"}
     elif days_passed <= 30:
         return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
@@ -44,11 +44,11 @@ def get_daily_strategy():
 
 KEYWORDS = {
     "INFO": ["간수치 낮추는 법", "공복혈당 관리", "역류성 식도염 식단", "불면증 극복 음식", "거북목 스트레칭", "위염에 좋은 과일"],
-    "AD": ["건강기능식품 추천", "면역력 영양제", "부모님 선물세트", "멀티비타민 베스트"]
+    "AD": ["주방필수품", "생활용품 추천", "위생용품 베스트", "가성비 아이템"]
 }
 
 # ==========================================
-# [2. 쿠팡 API 엔진 (HMAC signed-date 적용)]
+# [2. 쿠팡 API 엔진 (signed-date 적용)]
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
     method = "GET"
@@ -61,36 +61,33 @@ def fetch_coupang_get_api(path, query_string=""):
         msg = ts + method + full_path + query_string
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # timestamp -> signed-date 명칭 변경
+        # timestamp -> signed-date 파라미터 교정 반영
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={ts}, signature={sig}"
         headers = {"Authorization": auth, "Content-Type": "application/json"}
         res = requests.get(url, headers=headers, timeout=15)
         
         if res.status_code == 200:
             return res.json().get('data', [])
-        else:
-            print(f"⚠️ 쿠팡 API 응답 오류: {res.status_code}")
-            return None
+        return None
     except Exception as e:
         print(f"❌ 쿠팡 연결 오류: {e}")
         return None
 
 # ==========================================
-# [3. AI 생성 엔진 (Gemini 404 완전 해결)]
+# [3. AI 생성 엔진 (404 에러 원천 해결)]
 # ==========================================
 def generate_content(post_type, keyword, product=None):
     try:
-        # 최신 SDK Client 인스턴스 사용
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        # [해결] google-genai 패키지에서 가장 안정적인 모델 명칭 지정
+        # [해결] API 버전을 'v1'으로 고정하여 404 NOT_FOUND 방지
+        client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1'})
         model_id = "gemini-1.5-flash"
 
         if post_type == "AD" and product:
-            prompt = f"전문 건강 에디터로서 '{product['productName']}' 제품의 특징을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
+            prompt = f"전문 에디터로서 '{product['productName']}' 제품의 장점과 활용법을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
             img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
-            # 404 방지를 위해 최신 SDK 규격 적용
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
+            # [수정] 오타 교정 및 마크다운 기호 제거
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
             content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
         else:
@@ -123,20 +120,20 @@ def main():
     print(f"📢 {strategy['desc']} - 슬롯: {hour_idx} | 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # 상품 수집 시도
+        # '위생 롤백' 등 상품 확보 성공 로직 유지
         products = fetch_coupang_get_api("/products/goldbox")
         if not products:
-            products = fetch_coupang_get_api("/products/bestcategories/1024", "limit=10")
+            products = fetch_coupang_get_api("/products/bestcategories/1014", "limit=10") # 생활용품 카테고리
             
         if products and isinstance(products, list):
             prod = products[random.randint(0, len(products)-1)]
             print(f"✅ 상품 확보: {prod['productName']}")
             prefix, html = generate_content("AD", prod['productName'], prod)
-            if html and (url := post_to_blog(f"[건강추천] {prod['productName']} 분석 보고서", html)):
+            if html and (url := post_to_blog(f"[생활정보] {prod['productName']} 사용 후기 및 분석", html)):
                 print(f"🚀 광고글 완료: {url}")
                 return 
 
-    # 광고 실패 시 혹은 정보글 슬롯일 때
+    # 광고 실패 시 또는 정보글 슬롯
     kw = random.choice(KEYWORDS["INFO"])
     print(f"📘 [INFO] 주제: {kw}")
     prefix, html = generate_content("INFO", kw)
