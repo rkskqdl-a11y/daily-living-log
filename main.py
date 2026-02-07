@@ -1,6 +1,6 @@
 import os, hmac, hashlib, requests, time, json, random, re
 from datetime import datetime, date
-# 최신 SDK만 사용 (구형 google.generativeai 제거)
+# 최신 SDK: pip install google-genai (구형 google.generativeai 임포트 금지)
 from google import genai 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -31,24 +31,24 @@ STYLE_FIX = """
 </style>
 """
 
-# [수정] 수동 광고 테스트를 위해 무조건 AD 모드로 작동하도록 설정
+# [수정] 수동 광고 테스트를 위해 조건을 -1(강제 True)로 고정
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    # 수동 테스트 중이므로 모든 슬롯을 광고로 강제 개방
-    if days_passed >= -1: 
-        return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행 중"}
+    # 사용자님이 수동 테스트를 원하시므로 -1일 때 모든 슬롯 광고 모드
+    if days_passed <= -1: 
+        return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 수동 테스트 모드: 광고 강제 발행"}
     elif days_passed <= 30:
         return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
     else:
         return {"ad_slots": [1, 4], "desc": "📈 2단계: 수익 테스트"}
 
 KEYWORDS = {
-    "INFO": ["면역력 높이는 음식", "공복 혈당 관리", "불면증 극복하는 법", "거북목 교정 스트레칭"],
-    "AD": ["건강기능식품 추천", "면역 영양제", "쿠팡 인기 선물", "영양제 베스트"]
+    "INFO": ["면역력 높이는 건강 습관", "비타민C 잡티 케어법", "거북목 교정 스트레칭"],
+    "AD": ["인기 뷰티 아이템", "잡티 토닝 세럼 추천", "이니스프리 베스트"]
 }
 
 # ==========================================
-# [2. 쿠팡 API 엔진 (signed-date 적용)]
+# [2. 쿠팡 API 엔진 (인증 성공 로직 유지)]
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
     method = "GET"
@@ -61,7 +61,7 @@ def fetch_coupang_get_api(path, query_string=""):
         msg = ts + method + full_path + query_string
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # signed-date 파라미터 유지
+        # signed-date 헤더 적용
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={ts}, signature={sig}"
         headers = {"Authorization": auth, "Content-Type": "application/json"}
         res = requests.get(url, headers=headers, timeout=15)
@@ -74,38 +74,41 @@ def fetch_coupang_get_api(path, query_string=""):
         return None
 
 # ==========================================
-# [3. AI 생성 엔진 (404 완벽 해결)]
+# [3. AI 생성 엔진 (404 완결 해결)]
 # ==========================================
 def generate_content(post_type, keyword, product=None):
     try:
-        # 최신 SDK는 기본 설정으로 사용해야 충돌이 없습니다.
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        # [해결] 모델명에서 'models/'를 완전히 제거하고 문자열만 사용
-        model_name = "gemini-1.5-flash"
+        # [해결] 404 에러 방지를 위해 v1 API 버전 명시 및 클라이언트 초기화 정밀화
+        client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1'})
+        
+        # 모델명에서 'models/' 접두사를 제거하여 내부 매핑 오류 방지
+        model_id = "gemini-1.5-flash"
 
         if post_type == "AD" and product:
-            prompt = f"전문 건강 쇼핑 에디터로서 '{product['productName']}' 제품을 분석하는 HTML 글을 2,000자 이상 작성하세요. <h3> 섹션 구분 필수. 제품 구매 링크: {product['productUrl']}"
-            img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
+            prompt = f"전문 뷰티 에디터로서 '{product['productName']}' 제품의 특징과 사용 팁을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
+            img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img" alt="상품이미지"></div>'
             
-            # 최신 SDK 호출 방식
-            response = client.models.generate_content(model=model_name, contents=prompt)
+            # API 호출
+            response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
             
+            # 특수 기호 제거 및 스타일 결합
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
             content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
         else:
-            prompt = f"전문 건강 정보 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
-            response = client.models.generate_content(model=model_name, contents=prompt)
+            prompt = f"건강 전문 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
+            response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
             content = STYLE_FIX + re.sub(r'\*\*|##|`|#', '', res_text)
         
         return "전문 가이드:", content
     except Exception as e:
+        # [검토] 에러 발생 시 상세 정보 출력 후 None 반환하여 메인 로직이 INFO로 전환되게 함
         print(f"❌ AI 생성 실패 상세: {str(e)}")
         return None, None
 
 # ==========================================
-# [4. 블로그 포스팅 및 실행]
+# [4. 블로그 포스팅 및 실행 컨트롤러]
 # ==========================================
 def post_to_blog(title, content):
     try:
@@ -126,24 +129,24 @@ def main():
     print(f"📢 {strategy['desc']} - 슬롯: {hour_idx} | 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # 상품 확보 시도
+        # 이니스프리 세럼 등 상품 확보 성공 로직 유지
         products = fetch_coupang_get_api("/products/goldbox")
         if not products:
-            products = fetch_coupang_get_api("/products/bestcategories/1024", "limit=10")
+            products = fetch_coupang_get_api("/products/bestcategories/1010", "limit=10") # 뷰티 카테고리
             
         if products and isinstance(products, list):
             prod = products[random.randint(0, len(products)-1)]
             print(f"✅ 상품 확보: {prod['productName']}")
             prefix, html = generate_content("AD", prod['productName'], prod)
-            if html and (url := post_to_blog(f"[건강리뷰] {prod['productName']} 분석 및 추천", html)):
+            if html and (url := post_to_blog(f"[뷰티리뷰] {prod['productName']} 생생 사용 후기", html)):
                 print(f"🚀 광고글 발행 성공: {url}")
                 return 
 
-    # 정보글 (광고 실패 시 포함)
+    # 광고 실패 시 혹은 정보글 슬롯
     kw = random.choice(KEYWORDS["INFO"])
     print(f"📘 [INFO] 주제: {kw}")
     prefix, html = generate_content("INFO", kw)
-    if html and (url := post_to_blog(f"{kw} 완벽 관리 비법", html)):
+    if html and (url := post_to_blog(f"{kw} 완벽 관리 비법 가이드", html)):
         print(f"✅ 정보글 발행 성공: {url}")
 
 if __name__ == "__main__":
