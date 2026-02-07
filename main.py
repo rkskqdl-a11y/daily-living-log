@@ -19,7 +19,7 @@ SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
 
 STYLE_FIX = """
 <style>
-    h1, h2, h3 { line-height: 1.6!important; margin-bottom: 25px!important; color: #222; word-break: keep-all; }
+    h1, h2, h3 { line-height: 1.6!important; margin-bottom: 25 Korea!important; color: #222; word-break: keep-all; }
     .table-container { width: 100%; overflow-x: auto; margin: 30px 0; border: 1px solid #eee; border-radius: 8px; }
     table { width: 100%; min-width: 600px; border-collapse: collapse; line-height: 1.6; font-size: 15px; }
     th, td { border: 1px solid #f0f0f0; padding: 15px; text-align: left; }
@@ -29,18 +29,17 @@ STYLE_FIX = """
 </style>
 """
 
-# [수정] 수동 광고 테스트를 위해 무조건 AD 모드로 작동하도록 설정
 def get_daily_strategy():
-    # 테스트 기간 동안은 무조건 모든 슬롯에서 광고 발행
-    return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행"}
+    # [수동 테스트용] 현재 무조건 광고 발행 모드
+    return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 수동 테스트 모드: 광고 강제 발행"}
 
 KEYWORDS = {
-    "INFO": ["면역력 높이는 건강 습관", "치킨 영양 성분 분석", "냉동식품 건강하게 먹는 법"],
-    "AD": ["쿠팡 추천 간식", "인기 냉동식품", "자취생 필수템", "홈파티 메뉴 추천"]
+    "INFO": ["사무용 의자 고르는 법", "인체공학 의자의 중요성", "바른 자세 유지법"],
+    "AD": ["쿠팡 의자 추천", "사무용 의자 베스트", "가성비 의자 리뷰"]
 }
 
 # ==========================================
-# [2. 쿠팡 API 엔진 (기존 성공 로직 유지)]
+# [2. 쿠팡 API 엔진]
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
     method = "GET"
@@ -63,45 +62,57 @@ def fetch_coupang_get_api(path, query_string=""):
         return None
 
 # ==========================================
-# [3. AI 생성 엔진 (REST API 직접 호출 - 404 완벽 해결)]
+# [3. AI 생성 엔진 (v1 Stable 경로로 수정)]
 # ==========================================
-def generate_content_rest(post_type, keyword, product=None):
-    """SDK를 쓰지 않고 구글 API에 직접 요청하여 404 에러를 원천 차단합니다."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+def generate_content_final(post_type, keyword, product=None):
+    """
+    v1beta에서 발생하던 404 에러를 해결하기 위해 
+    2026년 정식 버전인 v1 엔드포인트를 사용합니다.
+    """
+    # [핵심] 정식 v1 경로 사용
+    base_url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
+    url = f"{base_url}?key={GEMINI_API_KEY}"
     
     if post_type == "AD" and product:
-        prompt = f"전문 요리 에디터로서 '{product['productName']}' 제품의 맛과 특징을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 구매 링크: {product['productUrl']}"
+        prompt = f"전문 리뷰어로서 '{product['productName']}' 제품의 장점을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 구매 링크: {product['productUrl']}"
         img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
     else:
-        prompt = f"전문 건강 정보 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
+        prompt = f"건강/가구 전문 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
         img_html = ""
 
     payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
+        "contents": [{"parts": [{"text": prompt}]}]
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        # API 요청
+        response = requests.post(url, json=payload, timeout=40)
         res_json = response.json()
         
-        # 결과 텍스트 추출
-        res_text = res_json['candidates'][0]['content']['parts'][0]['text']
-        
-        # 가공
-        content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
-        if post_type == "AD":
-            content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
-        
-        return "전문 가이드:", content
+        # 404 에러가 여전히 난다면 모델명을 다르게 시도 (Fallback)
+        if response.status_code == 404:
+            print("🔄 v1 경로 실패, 대안 모델로 재시도 중...")
+            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+            response = requests.post(url, json=payload, timeout=40)
+            res_json = response.json()
+
+        # 데이터 파싱
+        if 'candidates' in res_json:
+            res_text = res_json['candidates'][0]['content']['parts'][0]['text']
+            content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
+            if post_type == "AD":
+                content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
+            return "전문 가이드:", content
+        else:
+            print(f"⚠️ AI 응답 구조 오류: {res_json}")
+            return None, None
+            
     except Exception as e:
-        print(f"❌ AI 생성 실패 (REST): {str(e)}")
-        if 'res_json' in locals(): print(f"응답내용: {res_json}")
+        print(f"❌ AI 생성 최종 실패: {str(e)}")
         return None, None
 
 # ==========================================
-# [4. 블로그 포스팅 및 메인 컨트롤러]
+# [4. 블로그 포스팅 및 실행]
 # ==========================================
 def post_to_blog(title, content):
     try:
@@ -115,33 +126,32 @@ def post_to_blog(title, content):
         return None
 
 def main():
-    strategy = get_daily_strategy()
-    hour_idx = datetime.now().hour // 4 
-    is_ad = True # [테스트] 무조건 광고 모드 실행
+    print(f"📢 [TEST] 광고 강제 발행 모드 가동 중 (2026-v1-Stable)")
     
-    print(f"📢 {strategy['desc']} 모드 가동 중")
-    
-    if is_ad:
-        # 소바바치킨 등 상품 확보 성공 로직
-        products = fetch_coupang_get_api("/products/goldbox")
-        if not products:
-            products = fetch_coupang_get_api("/products/bestcategories/1012", "limit=10") # 식품 카테고리
-            
-        if products and isinstance(products, list):
-            prod = products[random.randint(0, len(products)-1)]
-            print(f"✅ 상품 확보: {prod['productName']}")
-            prefix, html = generate_content_rest("AD", prod['productName'], prod)
-            
-            if html:
-                title = f"[내돈내산] {prod['productName']} 솔직 후기 및 맛있게 먹는 법"
-                url = post_to_blog(title, html)
-                if url:
-                    print(f"🚀 광고글 발행 성공: {url}")
-                    return 
+    # 1. 상품 확보 (키루에 의자 등)
+    products = fetch_coupang_get_api("/products/goldbox")
+    if not products:
+        products = fetch_coupang_get_api("/products/bestcategories/1015", "limit=10") # 홈인테리어
+        
+    if products:
+        prod = products[0]
+        print(f"✅ 상품 확보: {prod['productName'][:30]}...")
+        
+        # 2. AI 본문 생성
+        prefix, html = generate_content_final("AD", prod['productName'], prod)
+        
+        if html:
+            # 3. 블로그 포스팅
+            title = f"[추천] {prod['productName'][:40]} 솔직 분석 및 가이드"
+            url = post_to_blog(title, html)
+            if url:
+                print(f"🚀 [성공] 광고글 발행 완료: {url}")
+                return
 
-    # 실패 시 정보글 예비 로직
+    # 실패 시 예비 정보글
+    print("⚠️ 광고글 발행 실패로 정보글 전환 시도...")
     kw = random.choice(KEYWORDS["INFO"])
-    prefix, html = generate_content_rest("INFO", kw)
+    prefix, html = generate_content_final("INFO", kw)
     if html:
         post_to_blog(f"{kw} 완벽 가이드", html)
         print("✅ 정보글 발행 완료")
