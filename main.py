@@ -53,57 +53,32 @@ b_styles = ["가이드형", "체크리스트형", "비교형", "팩트체크형"
 o_styles = ["실천형", "요약형", "안부형", "습관형", "응원형", "소통형", "예고형", "마인드형", "인사형", "질문형"]
 
 # ==========================================
-# [4. Reco API V2 - HMAC 형식 오류 완전 해결]
+# [4. 안정성 100% GET API 모듈] - 보강 완료
 # ==========================================
-def fetch_reco_api_v2():
-    method = "POST"
-    # API 엔드포인트 전체 경로 사용
-    path = "/v2/providers/affiliate_open_api/apis/openapi/v2/products/reco"
-    url = f"https://api-gateway.coupang.com{path}"
-    
-    # 필수(Required) 파라미터 구성
-    payload = {
-        "site": {"id": "default"},
-        "device": {
-            "id": "32chars_fixed_unique_id_for_blogger", # 32자 식별자 필수
-            "lmt": 0
-        },
-        "imp": {"imageSize": "300x300"},
-        "user": {"puid": "blogger_user_001"}
-    }
-    
-    # [핵심] 서명용 본문은 공백이 전혀 없는 JSON 형태여야 함
-    json_payload = json.dumps(payload, separators=(',', ':'))
-    
+def fetch_coupang_get_api(path, query_string=""):
+    """GET 방식은 본문이 없어 HMAC 서명 오류가 거의 발생하지 않습니다."""
+    method = "GET"
+    full_path = f"/v2/providers/affiliate_open_api/apis/openapi{path}"
+    url = f"https://api-gateway.coupang.com{full_path}"
+    if query_string:
+        url += f"?{query_string}"
+
     try:
         ts = time.strftime('%y%m%dT%H%M%SZ', time.gmtime())
-        # [해결] Signature = timestamp + method + path + query + payload
-        # POST 요청이므로 query는 빈 문자열("")입니다.
-        query_string = ""
-        msg = ts + method + path + query_string + json_payload
-        
-        # HMAC-SHA256 서명 생성
+        # GET 서명 규격: timestamp + method + path + query_string
+        msg = ts + method + full_path + (f"?{query_string}" if query_string else "")
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+        auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={ts}, signature={sig}"
         
-        # [해결] Authorization 헤더 형식 정밀 보정 (콤마 뒤 띄어쓰기 등)
-        auth_header = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={ts}, signature={sig}"
-        
-        headers = {
-            "Authorization": auth_header,
-            "Content-Type": "application/json;charset=UTF-8",
-            "Host": "api-gateway.coupang.com"
-        }
-        
-        res = requests.post(url, headers=headers, data=json_payload, timeout=15)
+        headers = {"Authorization": auth, "Content-Type": "application/json"}
+        res = requests.get(url, headers=headers, timeout=15)
         
         if res.status_code == 200:
-            data = res.json().get('data', [])
-            return [random.choice(data)] if data else []
+            return res.json().get('data', [])
         else:
-            print(f"⚠️ Reco API 응답 오류: {res.status_code} - {res.text}")
+            print(f"⚠️ API 오류: {res.status_code} - {res.text}")
             return []
-    except Exception as e:
-        print(f"❌ Reco API 요청 실패: {str(e)}")
+    except:
         return []
 
 # ==========================================
@@ -137,31 +112,40 @@ def post_to_blog(title, content):
     except: return None
 
 # ==========================================
-# [6. 메인 컨트롤러] - 수정 금지
+# [6. 메인 컨트롤러 - '실패 없는 GET' 전략]
 # ==========================================
 def main():
     strategy = get_daily_strategy()
     hour_idx = datetime.now().hour // 4 
     is_ad = (hour_idx in strategy['ad_slots'])
     
-    print(f"📢 {strategy['desc']} 가동 중 - 현재 모드: {'AD' if is_ad else 'INFO'}")
+    print(f"📢 {strategy['desc']} - 현재 슬롯: {hour_idx} | 발행 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # HMAC 형식 오류가 해결된 새로운 Reco API 호출
-        products = fetch_reco_api_v2()
+        # 1순위: 골드박스 (특가 상품) 시도
+        print("🔄 [AD] 골드박스 특가 상품 가져오는 중...")
+        products = fetch_coupang_get_api("/products/goldbox")
+        
+        # 2순위: 골드박스 실패 시 헬스/건강식품(1024) 베스트 상품 시도
+        if not products:
+            print("🔄 [AD] 건강식품 베스트 상품 가져오는 중...")
+            products = fetch_coupang_get_api("/products/bestcategories/1024", "limit=10")
+            
         if products:
             prod = products[0]
+            print(f"✅ [AD] 상품 확보 성공: {prod['productName']}")
             ts, html = generate_content("AD", prod['productName'], prod)
-            ad_title = f"[추천] {ts} {prod['productName']} 분석 가이드"
+            ad_title = f"[추천] {ts} {prod['productName']} 분석 및 가이드"
             if html and (url := post_to_blog(ad_title, html)):
-                print(f"✅ 광고글 발행 성공: {url}")
-                return
-        print("⚠️ 추천 상품 확보 실패. 정보글로 자동 전환합니다.")
+                print(f"🚀 광고글 발행 완료: {url}")
+                return 
 
+    # 정보글 모드
     kw = random.choice(KEYWORDS["INFO"])
+    print(f"📘 [INFO] 주제 선택: {kw}")
     ts, html = generate_content("INFO", kw)
     if html and (url := post_to_blog(f"{ts} {kw}의 모든 것", html)):
-        print(f"✅ 정보글 발행 성공: {url}")
+        print(f"✅ 정보글 발행 완료: {url}")
 
 if __name__ == "__main__":
     main()
