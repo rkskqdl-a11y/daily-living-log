@@ -33,7 +33,7 @@ STYLE_FIX = """
 
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    if days_passed <= 30: return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
+    if days_passed <= -1: return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
     elif days_passed <= 90: return {"ad_slots": [1, 4], "desc": "📈 2단계: 수익 테스트"}
     else: return {"ad_slots": [1, 3, 5], "desc": "💰 3단계: 수익 최적화"}
 
