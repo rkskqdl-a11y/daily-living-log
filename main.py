@@ -31,11 +31,11 @@ STYLE_FIX = """
 </style>
 """
 
-# [수정] 사용자 요청에 따른 수동 광고 테스트 전략
+# [수정] 수동 광고 테스트를 위해 조건을 -1 대신 10(현재 5일차이므로 참)으로 변경
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    # 사용자 요청: -1로 설정하여 수동 광고 테스트 모드 강제 진입
-    if days_passed <= -1: 
+    # 테스트를 위해 days_passed가 10일 이하일 때(지금) 모든 슬롯을 광고로 개방
+    if days_passed <= 10: 
         return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행 중"}
     elif days_passed <= 30:
         return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
@@ -44,11 +44,11 @@ def get_daily_strategy():
 
 KEYWORDS = {
     "INFO": ["간수치 낮추는 법", "공복혈당 관리", "역류성 식도염 식단", "불면증 극복 음식", "거북목 스트레칭", "위염에 좋은 과일"],
-    "AD": ["주방필수품", "생활용품 추천", "위생용품 베스트", "가성비 아이템"]
+    "AD": ["생활용품 베스트", "가성비 주방용품", "필수 위생용품", "쿠팡 인기 아이템"]
 }
 
 # ==========================================
-# [2. 쿠팡 API 엔진 (signed-date 적용)]
+# [2. 쿠팡 API 엔진 (HMAC signed-date 적용)]
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
     method = "GET"
@@ -61,7 +61,7 @@ def fetch_coupang_get_api(path, query_string=""):
         msg = ts + method + full_path + query_string
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # timestamp -> signed-date 파라미터 교정 반영
+        # timestamp -> signed-date 적용
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={ts}, signature={sig}"
         headers = {"Authorization": auth, "Content-Type": "application/json"}
         res = requests.get(url, headers=headers, timeout=15)
@@ -74,20 +74,19 @@ def fetch_coupang_get_api(path, query_string=""):
         return None
 
 # ==========================================
-# [3. AI 생성 엔진 (404 에러 원천 해결)]
+# [3. AI 생성 엔진 (404 에러 종결 버전)]
 # ==========================================
 def generate_content(post_type, keyword, product=None):
     try:
-        # [해결] API 버전을 'v1'으로 고정하여 404 NOT_FOUND 방지
-        client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1'})
+        # [해결] 404를 피하기 위해 명시적으로 v1beta 버전을 호출하도록 설정
+        client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1beta'})
         model_id = "gemini-1.5-flash"
 
         if post_type == "AD" and product:
-            prompt = f"전문 에디터로서 '{product['productName']}' 제품의 장점과 활용법을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
+            prompt = f"전문 에디터로서 '{product['productName']}' 제품의 장점과 실용성을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
             img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
-            # [수정] 오타 교정 및 마크다운 기호 제거
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
             content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
         else:
@@ -120,25 +119,25 @@ def main():
     print(f"📢 {strategy['desc']} - 슬롯: {hour_idx} | 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # '위생 롤백' 등 상품 확보 성공 로직 유지
+        # 테스트 모드이므로 상품 확보에 집중
         products = fetch_coupang_get_api("/products/goldbox")
         if not products:
-            products = fetch_coupang_get_api("/products/bestcategories/1014", "limit=10") # 생활용품 카테고리
+            products = fetch_coupang_get_api("/products/bestcategories/1014", "limit=10")
             
         if products and isinstance(products, list):
             prod = products[random.randint(0, len(products)-1)]
             print(f"✅ 상품 확보: {prod['productName']}")
             prefix, html = generate_content("AD", prod['productName'], prod)
-            if html and (url := post_to_blog(f"[생활정보] {prod['productName']} 사용 후기 및 분석", html)):
-                print(f"🚀 광고글 완료: {url}")
+            if html and (url := post_to_blog(f"[생활정보] {prod['productName']} 분석 보고서", html)):
+                print(f"🚀 광고글 발행 성공: {url}")
                 return 
 
-    # 광고 실패 시 또는 정보글 슬롯
+    # 광고 실패 시 혹은 정보글
     kw = random.choice(KEYWORDS["INFO"])
     print(f"📘 [INFO] 주제: {kw}")
     prefix, html = generate_content("INFO", kw)
     if html and (url := post_to_blog(f"{kw} 완벽 관리 가이드", html)):
-        print(f"✅ 정보글 완료: {url}")
+        print(f"✅ 정보글 발행 성공: {url}")
 
 if __name__ == "__main__":
     main()
