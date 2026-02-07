@@ -31,13 +31,13 @@ STYLE_FIX = """
 </style>
 """
 
-# [테스트 섹션] 광고글 강제 발행 설정
+# [수정] 수동 광고 테스트를 위한 전략 설정
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    # 현재 테스트를 위해 모든 시간대([0,1,2,3,4,5])를 광고 슬롯으로 개방했습니다.
-    if days_passed <= -1: 
-        return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행"}
-    elif days_passed <= 30: # 테스트 성공 후 여기를 30으로 복구하시면 됩니다.
+    # 테스트를 위해 days_passed가 10일 이하일 때 모든 슬롯을 광고로 개방 (현재 5일차)
+    if days_passed <= 10: 
+        return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행 중"}
+    elif days_passed <= 30:
         return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
     else:
         return {"ad_slots": [1, 4], "desc": "📈 2단계: 수익 테스트"}
@@ -61,7 +61,7 @@ def fetch_coupang_get_api(path, query_string=""):
         msg = ts + method + full_path + query_string
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # timestamp -> signed-date 명칭 변경 반영
+        # timestamp -> signed-date 명칭 변경
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={ts}, signature={sig}"
         headers = {"Authorization": auth, "Content-Type": "application/json"}
         res = requests.get(url, headers=headers, timeout=15)
@@ -82,13 +82,13 @@ def generate_content(post_type, keyword, product=None):
     try:
         # 최신 SDK Client 인스턴스 사용
         client = genai.Client(api_key=GEMINI_API_KEY)
-        # [해결] google-genai 패키지에서는 'gemini-1.5-flash' 단독 명칭만 사용
+        # [해결] google-genai 패키지에서 가장 안정적인 모델 명칭 지정
         model_id = "gemini-1.5-flash"
 
         if post_type == "AD" and product:
-            prompt = f"쇼핑 에디터로서 '{product['productName']}' 제품의 특징을 2,000자 이상의 HTML로 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
+            prompt = f"전문 건강 에디터로서 '{product['productName']}' 제품의 특징을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
             img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
-            # 404 방지를 위해 모델 호출 방식 최적화
+            # 404 방지를 위해 최신 SDK 규격 적용
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
@@ -97,7 +97,7 @@ def generate_content(post_type, keyword, product=None):
             prompt = f"전문 건강 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
-            content = STYLE_FIX + re.sub(r'\*\*|##|`|#', Korea_sub(r'\*\*|##|`|#', '', res_text)) # 특수문자 제거 로직 강화
+            content = STYLE_FIX + re.sub(r'\*\*|##|`|#', '', res_text)
         
         return "전문 가이드:", content
     except Exception as e:
