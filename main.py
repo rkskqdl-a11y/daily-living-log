@@ -56,33 +56,43 @@ b_styles = ["가이드형", "체크리스트형", "비교형", "팩트체크형"
 o_styles = ["실천형", "요약형", "안부형", "습관형", "응원형", "소통형", "예고형", "마인드형", "인사형", "질문형"]
 
 # ==========================================
-# [4. 쿠팡 추천(Reco) API 모듈] - 신규 교체
+# [4. 기술 모듈] - 보장된 추천 API (POST 방식)
 # ==========================================
-def fetch_reco_products():
-    """사용자님이 찾으신 POST /v2/products/reco API를 사용합니다."""
+def fetch_stable_reco_product():
+    """사용자님이 찾으신 POST /v2/products/reco API를 한 번에 성공하도록 구현합니다."""
     method = "POST"
     path = "/v2/products/reco"
     url = f"https://link.coupang.com/api{path}"
     
-    #에 정의된 필수 파라미터
+    # 필수 규격 준수
     payload = {
         "site": {"id": "default"},
         "device": {"id": "auto", "lmt": 0}
     }
     
+    # JSON 본문 직렬화 (공백 제거) - 서명 생성 시 필수 사항
+    json_payload = json.dumps(payload, separators=(',', ':'))
+    
     try:
         ts = time.strftime('%y%m%dT%H%M%SZ', time.gmtime())
-        # POST 방식의 Signature 생성 로직
-        msg = ts + method + path + json.dumps(payload)
+        # POST 서명: ts + method + path + body
+        msg = ts + method + path + json_payload
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={ts}, signature={sig}"
         
         headers = {"Authorization": auth, "Content-Type": "application/json"}
-        res = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
+        res = requests.post(url, headers=headers, data=json_payload, timeout=15)
         
-        data = res.json().get('data', [])
-        return [random.choice(data)] if data else []
-    except:
+        if res.status_code == 200:
+            data = res.json().get('data', [])
+            if data:
+                print(f"✅ 추천 상품 확보 성공 (총 {len(data)}개 중 1개 선택)")
+                return [random.choice(data)]
+        
+        print(f"⚠️ API 응답 오류: {res.status_code} - {res.text}")
+        return []
+    except Exception as e:
+        print(f"❌ API 요청 중 치명적 에러: {str(e)}")
         return []
 
 # ==========================================
@@ -95,19 +105,20 @@ def generate_content(post_type, keyword, product=None):
         model = genai.GenerativeModel('gemini-1.5-flash')
         
         if post_type == "AD":
-            # 디자인 가이드 준수
             prompt = f"""
-            쇼핑 큐레이터로서 '{product['productName']}' 제품을 소개하는 HTML 포스팅을 1,500자 이상 작성하세요. 
-            상단에 <img src='{product['productImage']}' class='prod-img'>를 넣고, 
-            본문 내에 <a href='{product['productUrl']}' style='font-weight:bold; color:blue;'>▶ 상세정보 및 최저가 확인하기</a>를 포함하세요.
-            마크다운 기호 없이 HTML로만 작성하고 마지막에 대가성 문구를 넣으세요.
+            쇼핑 에디터로서 '{product['productName']}' 제품을 분석하고 소개하는 HTML 포스팅을 1,500자 이상 작성하세요. 
+            [필수 사항]:
+            1. 상단 이미지: <img src='{product['productImage']}' class='prod-img'>
+            2. 중간/하단 링크: <a href='{product['productUrl']}' style='font-weight:bold; color:blue;'>▶ 제품 상세정보 및 최저가 확인하기</a>
+            3. 마지막 대가성 문구 포함.
+            4. 마크다운 기호 금지.
             """
             img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
             res = model.generate_content(prompt).text
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res)
             content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다. 제품 링크: {product['productUrl']}</p>"
         else:
-            prompt = f"전문 에디터로서 '{keyword}'에 대해 1,500자 이상 HTML로 작성하세요. 구성:[도입-{ins},본론-{bs},결론-{os}]. <table>은 <div class='table-container'>로 감싸세요. 마크다운 금지."
+            prompt = f"전문 에디터로서 '{keyword}'에 대해 1,500자 이상 HTML로 작성하세요. 구성:[도입-{ins},본론-{bs},결론-{os}]. <table>은 <div class='table-container'>로 감싸세요."
             res = model.generate_content(prompt).text
             content = STYLE_FIX + re.sub(r'\*\*|##|`|#', '', res)
             
@@ -125,27 +136,27 @@ def post_to_blog(title, content):
         print(f"❌ 발행 에러: {str(e)}"); return None
 
 # ==========================================
-# [6. 메인 컨트롤러] - Reco API 기반으로 전면 개정
+# [6. 메인 컨트롤러 - '한 번에 성공' 로직 적용]
 # ==========================================
 def main():
     strategy = get_daily_strategy()
     hour_idx = datetime.now().hour // 4 
     is_ad = (hour_idx in strategy['ad_slots'])
     
-    print(f"📢 {strategy['desc']} 가동 중 - 현재 모드: {'AD' if is_ad else 'INFO'}")
+    print(f"📢 {strategy['desc']} 가동 중 - 현재 슬롯: {hour_idx} | 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # [핵심 변경] 키워드 검색 대신 추천 API를 바로 호출합니다.
-        products = fetch_reco_products()
+        # [핵심] 키워드 검색 없이 개인화 추천 API로 즉시 상품 확보
+        products = fetch_stable_reco_product()
         if products:
             prod = products[0]
-            # 광고글인 경우 키워드 대신 상품명을 제목의 핵심으로 사용합니다.
+            # 추천 상품 기반으로 제목 생성
             ts, html = generate_content("AD", prod['productName'], prod)
-            ad_title = f"[강력추천] {ts} {prod['productName']} 상세 분석 가이드"
+            ad_title = f"[추천] {ts} {prod['productName']} 상세 분석 가이드"
             if html and (url := post_to_blog(ad_title, html)):
                 print(f"✅ 광고글 발행 성공: {url}")
                 return
-        print("⚠️ 추천 상품 확보 실패. 정보글로 자동 전환합니다.")
+        print("⚠️ 상품 확보 실패. 정보글로 긴급 전환합니다.")
 
     # 정보글 모드
     kw = random.choice(KEYWORDS["INFO"])
