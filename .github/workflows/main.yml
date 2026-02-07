@@ -1,38 +1,48 @@
-name: Auto Blog Posting
+name: Scheduled Daily Automation
 
 on:
   schedule:
-    # 한국 시간(KST) 기준: 04시, 08시, 12시, 16시, 20시, 24시 (총 6회 실행)
-    # UTC 기준 (KST-9): 19시, 23시, 03시, 07시, 11시, 15시
-    - cron: '0 19,23,3,7,11,15 * * *'
-  workflow_dispatch: # [Run workflow] 버튼을 통해 수동 실행을 허용합니다.
+    - cron: '0 0,4,8,12,16,20 * * *' # 하루 6번 실행
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  automation-engine:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Configure Python Environment
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
-          pip install --upgrade pip
-          # 최신 모델(Gemini 1.5 Flash 등) 인식 및 404 에러 방지를 위해 -U 옵션 사용
-          pip install -U google-generativeai requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          python -m pip install --upgrade pip
+          pip install requests google-genai google-api-python-client google-auth-oauthlib
 
-      - name: Run automation script
+      - name: Run Script
         env:
-          # 깃허브 Secrets와 파이썬 변수를 1:1로 정확하게 연결합니다.
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
-          BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
-          CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
         run: python main.py
+
+      # 변경 사항이 있을 때만 푸시 (선택 사항: 로그용 파일 생성 시 유용)
+      - name: Push Changes (Optional)
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          if ! git diff --quiet HEAD; then
+            git commit -m "chore: 일일 자동 업데이트 ($(date +'%Y-%m-%d'))"
+            git push
+          fi
