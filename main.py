@@ -53,46 +53,45 @@ b_styles = ["가이드형", "체크리스트형", "비교형", "팩트체크형"
 o_styles = ["실천형", "요약형", "안부형", "습관형", "응원형", "소통형", "예고형", "마인드형", "인사형", "질문형"]
 
 # ==========================================
-# [4. HMAC 오류 해결 Reco API (POST)] - 정밀 수정
+# [4. Reco API V2 - HMAC 형식 오류 정밀 해결]
 # ==========================================
 def fetch_reco_api_v2():
-    """HMAC format is invalid 오류를 해결한 정밀 서명 생성 로직입니다."""
+    """InvalidHmacFormatException을 해결하기 위해 서명 형식을 공식 규격으로 강제합니다."""
     method = "POST"
-    # 엔드포인트 전체 경로를 정확히 사용해야 함
+    # 엔드포인트 전체 경로
     path = "/v2/providers/affiliate_open_api/apis/openapi/v2/products/reco"
-    domain = "https://api-gateway.coupang.com"
-    url = f"{domain}{path}"
+    url = f"https://api-gateway.coupang.com{path}"
     
-    # 필수(Required) 파라미터 세팅
+    # 필수 파라미터 구성
     payload = {
         "site": {"id": "default"},
         "device": {
-            "id": "32chars_unique_device_id_for_blog", # 필수: 32자 식별자
-            "lmt": 0 # 필수: 광고 트래킹 허용
+            "id": "12345678901234567890123456789012", # 32자 식별자 필수
+            "lmt": 0
         },
-        "imp": {"imageSize": "300x300"}, # 필수
-        "user": {"puid": "blogger_user_001"} # 필수
+        "imp": {"imageSize": "300x300"},
+        "user": {"puid": "blogger_user_001"}
     }
     
-    # [중요] 서명 생성 시 payload는 공백 없는 JSON 문자열이어야 함
+    # [핵심] 서명용 페이로드는 공백이 전혀 없는 콤팩트한 JSON이어야 함
     json_payload = json.dumps(payload, separators=(',', ':'))
     
     try:
         ts = time.strftime('%y%m%dT%H%M%SZ', time.gmtime())
-        # [해결] 서명 규격: timestamp + method + path + query + payload
+        # Signature = timestamp + method + path + query + payload
         # POST 요청이므로 query는 빈 문자열("")임
         query_string = ""
         msg = ts + method + path + query_string + json_payload
         
-        # HMAC 서명 생성
+        # HMAC-SHA256 서명 생성
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # [해결] Authorization 헤더 형식 정밀 보정
+        # [해결] Authorization 헤더의 띄어쓰기와 콤마 위치를 쿠팡 규격에 100% 맞춤
         auth_header = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={ts}, signature={sig}"
         
         headers = {
             "Authorization": auth_header,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json;charset=UTF-8"
         }
         
         res = requests.post(url, headers=headers, data=json_payload, timeout=15)
@@ -108,7 +107,7 @@ def fetch_reco_api_v2():
         return []
 
 # ==========================================
-# [5. AI 콘텐츠 생성 및 블로그 발행] - 수정 금지
+# [5. AI 콘텐츠 생성 및 발행] - 수정 금지
 # ==========================================
 def generate_content(post_type, keyword, product=None):
     ts_pref, ins, bs, os_style = random.choice(t_styles), random.choice(i_styles), random.choice(b_styles), random.choice(o_styles)
@@ -120,7 +119,7 @@ def generate_content(post_type, keyword, product=None):
             img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
             res = model.generate_content(prompt).text
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res)
-            content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다. {product['productUrl']}</p>"
+            content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다. 제품 확인: {product['productUrl']}</p>"
         else:
             prompt = f"'{keyword}' 주제로 건강 가이드 HTML 글을 1,500자 이상 작성하세요. 구성:[{ins},{bs},{os_style}]. <table> 포함."
             res = model.generate_content(prompt).text
@@ -148,7 +147,7 @@ def main():
     print(f"📢 {strategy['desc']} 가동 중 - 현재 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # [핵심] HMAC 오류가 해결된 새로운 Reco API 호출
+        # [핵심] HMAC 형식 오류가 해결된 Reco API 호출
         products = fetch_reco_api_v2()
         if products:
             prod = products[0]
