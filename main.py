@@ -56,44 +56,42 @@ o_styles = ["실천형", "요약형", "안부형", "습관형", "응원형", "�
 # [4. Reco API V2 - HMAC 형식 오류 완전 해결]
 # ==========================================
 def fetch_reco_api_v2():
-    """InvalidHmacFormatException을 해결하기 위해 서명 메시지를 엄격히 구성합니다."""
     method = "POST"
-    # 문서에 명시된 전체 경로를 사용합니다.
+    # API 엔드포인트 전체 경로 사용
     path = "/v2/providers/affiliate_open_api/apis/openapi/v2/products/reco"
-    domain = "https://api-gateway.coupang.com"
-    url = f"{domain}{path}"
+    url = f"https://api-gateway.coupang.com{path}"
     
-    # 필수(Required) 파라미터 세팅
+    # 필수(Required) 파라미터 구성
     payload = {
         "site": {"id": "default"},
         "device": {
-            "id": "32chars_unique_device_id_for_blog",
+            "id": "32chars_fixed_unique_id_for_blogger", # 32자 식별자 필수
             "lmt": 0
         },
         "imp": {"imageSize": "300x300"},
         "user": {"puid": "blogger_user_001"}
     }
     
-    # [중요] 서명용 페이로드는 공백이 전혀 없어야 합니다.
+    # [핵심] 서명용 본문은 공백이 전혀 없는 JSON 형태여야 함
     json_payload = json.dumps(payload, separators=(',', ':'))
     
     try:
         ts = time.strftime('%y%m%dT%H%M%SZ', time.gmtime())
-        # Signature = timestamp + method + path + query + payload
-        # POST 요청이므로 query는 빈 문자열입니다.
+        # [해결] Signature = timestamp + method + path + query + payload
+        # POST 요청이므로 query는 빈 문자열("")입니다.
         query_string = ""
         msg = ts + method + path + query_string + json_payload
         
         # HMAC-SHA256 서명 생성
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # [해결] Authorization 헤더의 형식을 쿠팡 규격에 맞춰 정밀하게 재구성합니다.
-        # algorithm, access-key, timestamp, signature 사이의 콤마 뒤에 공백이 한 칸 있어야 합니다.
+        # [해결] Authorization 헤더 형식 정밀 보정 (콤마 뒤 띄어쓰기 등)
         auth_header = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, timestamp={ts}, signature={sig}"
         
         headers = {
             "Authorization": auth_header,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json;charset=UTF-8",
+            "Host": "api-gateway.coupang.com"
         }
         
         res = requests.post(url, headers=headers, data=json_payload, timeout=15)
@@ -102,10 +100,10 @@ def fetch_reco_api_v2():
             data = res.json().get('data', [])
             return [random.choice(data)] if data else []
         else:
-            print(f"⚠️ API 응답 오류: {res.status_code} - {res.text}")
+            print(f"⚠️ Reco API 응답 오류: {res.status_code} - {res.text}")
             return []
     except Exception as e:
-        print(f"❌ API 요청 실패: {str(e)}")
+        print(f"❌ Reco API 요청 실패: {str(e)}")
         return []
 
 # ==========================================
@@ -149,6 +147,7 @@ def main():
     print(f"📢 {strategy['desc']} 가동 중 - 현재 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
+        # HMAC 형식 오류가 해결된 새로운 Reco API 호출
         products = fetch_reco_api_v2()
         if products:
             prod = products[0]
