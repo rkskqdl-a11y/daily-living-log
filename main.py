@@ -1,6 +1,6 @@
 import os, hmac, hashlib, requests, time, json, random, re
 from datetime import datetime, date
-# 최신 SDK: pip install google-genai 필수
+# 최신 SDK: pip install google-genai
 from google import genai 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -31,11 +31,11 @@ STYLE_FIX = """
 </style>
 """
 
-# [수정] 수동 광고 테스트를 위해 조건을 -1 대신 10(현재 5일차이므로 참)으로 변경
+# [수정] 수동 광고 테스트를 위해 조건을 -1로 설정 (현재 5일차이므로 True가 됨)
 def get_daily_strategy():
     days_passed = (date.today() - START_DATE).days
-    # 테스트를 위해 days_passed가 10일 이하일 때(지금) 모든 슬롯을 광고로 개방
-    if days_passed <= 10: 
+    # 수동 테스트를 위해 모든 시간대를 광고 모드로 개방
+    if days_passed >= -1: 
         return {"ad_slots": [0, 1, 2, 3, 4, 5], "desc": "🧪 테스트 모드: 광고 강제 발행 중"}
     elif days_passed <= 30:
         return {"ad_slots": [3], "desc": "🛡️ 1단계: 신뢰 구축"}
@@ -43,12 +43,12 @@ def get_daily_strategy():
         return {"ad_slots": [1, 4], "desc": "📈 2단계: 수익 테스트"}
 
 KEYWORDS = {
-    "INFO": ["간수치 낮추는 법", "공복혈당 관리", "역류성 식도염 식단", "불면증 극복 음식", "거북목 스트레칭", "위염에 좋은 과일"],
-    "AD": ["생활용품 베스트", "가성비 주방용품", "필수 위생용품", "쿠팡 인기 아이템"]
+    "INFO": ["간수치 낮추는 법", "공복혈당 관리", "역류성 식도염 식단", "불면증 극복 음식", "거북목 스트레칭"],
+    "AD": ["가성비 가전제품", "로봇청소기 추천", "생활가전 베스트", "인기 육아템"]
 }
 
 # ==========================================
-# [2. 쿠팡 API 엔진 (HMAC signed-date 적용)]
+# [2. 쿠팡 API 엔진 (signed-date 적용)]
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
     method = "GET"
@@ -61,7 +61,7 @@ def fetch_coupang_get_api(path, query_string=""):
         msg = ts + method + full_path + query_string
         sig = hmac.new(SECRET_KEY.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # timestamp -> signed-date 적용
+        # timestamp -> signed-date 적용 성공 로직 유지
         auth = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={ts}, signature={sig}"
         headers = {"Authorization": auth, "Content-Type": "application/json"}
         res = requests.get(url, headers=headers, timeout=15)
@@ -78,19 +78,23 @@ def fetch_coupang_get_api(path, query_string=""):
 # ==========================================
 def generate_content(post_type, keyword, product=None):
     try:
-        # [해결] 404를 피하기 위해 명시적으로 v1beta 버전을 호출하도록 설정
-        client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1beta'})
+        # [해결] 404를 방지하기 위해 v1 버전을 명시적으로 호출
+        client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1'})
+        # 모델명 앞에 'models/'를 빼고 'gemini-1.5-flash'만 입력
         model_id = "gemini-1.5-flash"
 
         if post_type == "AD" and product:
-            prompt = f"전문 에디터로서 '{product['productName']}' 제품의 장점과 실용성을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
+            prompt = f"쇼핑 가이드 에디터로서 '{product['productName']}' 제품의 성능과 실사용 장점을 2,000자 이상의 HTML로 상세히 리뷰하세요. <h3> 섹션 구분 필수. 제품 링크: {product['productUrl']}"
             img_html = f'<div style="text-align:center; margin-bottom:30px;"><img src="{product["productImage"]}" class="prod-img"></div>'
+            
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
+            
+            # 특수 기호 제거 및 스타일 결합
             content = STYLE_FIX + img_html + re.sub(r'\*\*|##|`|#', '', res_text)
             content += f"<br><p style='color:gray; font-size:12px;'>이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다.</p>"
         else:
-            prompt = f"전문 건강 에디터로서 '{keyword}' 주제의 HTML 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
+            prompt = f"건강 전문 에디터로서 '{keyword}' 주제의 HTML 건강 가이드를 2,000자 이상 작성하세요. <table>과 리스트를 포함하세요."
             response = client.models.generate_content(model=model_id, contents=prompt)
             res_text = response.text
             content = STYLE_FIX + re.sub(r'\*\*|##|`|#', '', res_text)
@@ -119,16 +123,16 @@ def main():
     print(f"📢 {strategy['desc']} - 슬롯: {hour_idx} | 모드: {'AD' if is_ad else 'INFO'}")
     
     if is_ad:
-        # 테스트 모드이므로 상품 확보에 집중
+        # 로봇청소기 등 상품 확보 성공 로직 유지
         products = fetch_coupang_get_api("/products/goldbox")
         if not products:
-            products = fetch_coupang_get_api("/products/bestcategories/1014", "limit=10")
+            products = fetch_coupang_get_api("/products/bestcategories/1016", "limit=10") # 가전 카테고리
             
         if products and isinstance(products, list):
             prod = products[random.randint(0, len(products)-1)]
             print(f"✅ 상품 확보: {prod['productName']}")
             prefix, html = generate_content("AD", prod['productName'], prod)
-            if html and (url := post_to_blog(f"[생활정보] {prod['productName']} 분석 보고서", html)):
+            if html and (url := post_to_blog(f"[실사용기] {prod['productName']} 분석 및 추천", html)):
                 print(f"🚀 광고글 발행 성공: {url}")
                 return 
 
