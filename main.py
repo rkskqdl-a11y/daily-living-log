@@ -18,15 +18,16 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '').strip()
 SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
 
+# [수정] 표(Table) 디자인을 더 깔끔하고 모바일에서도 잘 보이게 강화했습니다.
 STYLE_FIX = """
 <style>
     h1, h2, h3 { line-height: 1.6!important; margin-bottom: 25px!important; color: #222; word-break: keep-all; }
-    .table-container { width: 100%; overflow-x: auto; margin: 30px 0; border: 1px solid #eee; border-radius: 8px; }
-    table { width: 100%; min-width: 600px; border-collapse: collapse; line-height: 1.6; font-size: 15px; }
-    th, td { border: 1px solid #f0f0f0; padding: 15px; text-align: left; }
-    th { background-color: #fafafa; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin: 30px 0; font-size: 15px; border-top: 2px solid #333; }
+    th, td { border: 1px solid #eee; padding: 12px; text-align: left; line-height: 1.6; }
+    th { background-color: #f9f9f9; font-weight: bold; color: #333; text-align: center; }
+    tr:nth-child(even) { background-color: #fafafa; }
     .prod-img { display: block; margin: 0 auto; max-width: 450px; height: auto; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-    p { line-height: 1.8; margin-bottom: 32px; color: #444; }
+    p { line-height: 1.8; margin-bottom: 25px; color: #444; }
 </style>
 """
 
@@ -49,33 +50,22 @@ def get_daily_strategy():
 # [3. 대규모 건강/음식 키워드 DB]
 # ==========================================
 KEYWORDS_INFO = [
-    # 기존 요청 키워드
     "간수치 낮추는 법", "공복혈당 관리", "역류성 식도염 식단", "불면증 극복 음식", "거북목 스트레칭", "위염에 좋은 과일",
     "고혈압 낮추는 차", "지방간 수치 개선", "만성 변비 탈출", "아토피 보습 관리", "대상포진 면역력", "통풍 요산 관리",
     "아침 사과의 효능", "액상과당의 위험성", "비타민D 합성 시간", "마그네슘 부족 증상", "오메가3 고르는 법", "단백질 하루 권장량",
     "간헐적 단식 효과", "저탄고지 부작용", "안구건조증 예방", "허리디스크 좋은 운동", "비염 완화 생활습관", "족저근막염 스트레칭",
     "브로콜리 세척법", "귀리의 효능", "토마토 라이코펜", "강황 커큐민 효과", "물 마시는 건강한 습관", "카페인 중독 탈출법",
     "내장지방 빼는 법", "기초대사량 높이기", "림프 순환 마사지", "면역력 높이는 영양제", "피로회복에 좋은 음식", "눈 건강 지키는 법",
-    
-    # 과일/채소 효능 및 먹는 법
     "블루베리 안토시아닌 효능", "아보카도 하루 섭취량", "석류 여성 건강 효능", "당근 비타민A 흡수율 높이는 법", 
     "양배추 위 건강 효능", "키위 소화 효능", "바나나 공복 섭취 주의점", "포도 레스베라트롤 효능", "마늘 알리신 극대화하는 법",
     "양파 퀘르세틴 효능", "시금치 루테인 효능", "파프리카 색깔별 차이", "브로콜리 설포라판 효능", "비트 혈관 건강",
-    
-    # 곡물/견과류 효능 및 먹는 법
     "현미 발아 효능", "귀리 베타글루칸 효능", "검은콩 안토시아닌과 탈모", "호두 뇌 건강 효능", "아몬드 하루 권장량",
     "브라질너트 셀레늄 주의점", "메밀 루틴 효능", "보리 식이섬유 효능", "퀴노아 단백질 효능", "율무 부종 완화",
-    
-    # 고기/생선/단백질
     "닭가슴살 건강하게 먹는 법", "연어 오메가3 효능", "고등어 혈관 건강", "소고기 철분 흡수 돕는 음식",
     "오리고기 불포화지방산", "계란 노른자 콜레스테롤 진실", "두부 식물성 단백질 효능", "멸치 칼슘 흡수 높이기",
     "굴 아연 효능", "전복 기력 회복 효능", "돼지고기 비타민B1 효능",
-    
-    # 차(Tea)/전통차 효능 및 먹는 법
     "녹차 카테킨 효능", "생강차 염증 완화", "대추차 수면 도움", "매실액 소화 효능", "우엉차 다이어트 효과",
     "루이보스차 항산화", "페퍼민트차 집중력", "보리차 수분 보충", "히비스커스차 혈압 조절", "돼지감자차 이눌린 효능",
-    
-    # 식습관/생활건강
     "천천히 씹어 먹기의 효과", "식후 바로 누우면 안 되는 이유", "공복에 먹으면 좋은 음식", "자기 전 피해야 할 음식",
     "혈당 스파이크 방지 식사법", "나트륨 배출 돕는 칼륨 음식", "탄산음료 끊는 법", "야식 증후군 탈출하기",
     "식초 트릭 혈당 관리법", "건강한 식용유 고르는 법"
@@ -113,8 +103,8 @@ def generate_content_final(post_type, keyword, product=None):
         if post_type == "AD" and product:
             prompt = f"{persona} 주제: '{product['productName']}' 리뷰. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 [/BODY] 형식 엄수. **주의: 본문 내용에 제품 URL 주소는 절대 적지 마세요.**"
         else:
-            # [보강] 효능과 먹는 법을 포함하도록 지시
-            prompt = f"{persona} 주제: '{keyword}'의 효능과 효과적으로 먹는 법 가이드. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 상세히 [/BODY] 형식 엄수. <table>로 영양 성분이나 비교표를 포함하세요."
+            # [수정] 표를 반드시 HTML 형식(<table>)으로 작성하도록 지시했습니다.
+            prompt = f"{persona} 주제: '{keyword}'의 효능과 효과적으로 먹는 법 가이드. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 상세히 [/BODY] 형식 엄수. 영양 성분이나 비교표가 필요하다면 마크다운 형식이 아닌 **반드시 HTML 태그(table, tr, td)를 사용해서 작성하세요.**"
 
         res = model.generate_content(prompt).text
         
@@ -126,7 +116,19 @@ def generate_content_final(post_type, keyword, product=None):
         clean_body = re.sub(r'⭐.*?⭐', '', clean_body)
         clean_body = re.sub(r'\*\*|##|`|#', '', clean_body) 
         
-        body_html = "".join([f"<p>{line.strip()}</p>" for line in clean_body.split('\n') if line.strip()])
+        # [수정] 줄바꿈 처리 시 HTML 태그(<table>, <tr> 등)가 포함된 줄은 <p> 태그를 씌우지 않도록 방어 로직을 추가했습니다.
+        lines = clean_body.split('\n')
+        wrapped_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped: continue
+            # HTML 태그로 시작하는 줄은 그대로 두고, 일반 텍스트만 <p>로 감쌉니다.
+            if stripped.startswith('<') and stripped.endswith('>'):
+                wrapped_lines.append(stripped)
+            else:
+                wrapped_lines.append(f"<p>{stripped}</p>")
+        
+        body_html = "".join(wrapped_lines)
         
         if post_type == "AD":
             img_html = f'<div style="text-align:center; margin:30px 0;"><img src="{product["productImage"]}" class="prod-img"></div>'
