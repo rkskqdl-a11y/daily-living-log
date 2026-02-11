@@ -1,5 +1,6 @@
 import os, hmac, hashlib, requests, time, json, random, re
 from datetime import datetime, date
+# [성공 포인트] 애드픽 코드에서 사용한 구형 SDK 규격 유지 (FutureWarning 무시 가능)
 import google.generativeai as genai
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -9,7 +10,7 @@ from googleapiclient.discovery import build
 # [1. 시스템 설정]
 # ==========================================
 BLOG_ID = "195027135554155574"
-START_DATE = datetime(2026, 2, 2) 
+START_DATE = datetime(2026, 2, 2) #
 
 CLIENT_ID = os.environ.get('CLIENT_ID', '').strip()
 CLIENT_SECRET = os.environ.get('CLIENT_SECRET', '').strip()
@@ -18,7 +19,7 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '').strip()
 SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
 
-# [수정] 표(Table) 디자인을 더 깔끔하고 모바일에서도 잘 보이게 강화했습니다.
+# [수정] 표(Table) 디자인 및 문단 간격 최적화
 STYLE_FIX = """
 <style>
     h1, h2, h3 { line-height: 1.6!important; margin-bottom: 25px!important; color: #222; word-break: keep-all; }
@@ -37,12 +38,16 @@ STYLE_FIX = """
 def get_daily_strategy():
     days_diff = (datetime.now() - START_DATE).days
     
+    # 1단계-A: 시작 후 14일까지 100% 정보글 (저품질 절대 방지)
     if days_diff <= 14:
         return {"ad_slots": [], "desc": "🛡️ 1단계-A: 초정밀 신뢰 구축 (100% 정보글)"}
+    # 1단계-B: 15일~30일 (하루 1회 광고)
     elif days_diff <= 30: 
         return {"ad_slots": [3], "desc": "🛡️ 1단계-B: 신뢰 안착 모드 (하루 1회 광고)"}
+    # 2단계: 31일~90일 (하루 2회 광고)
     elif days_diff <= 90:
         return {"ad_slots": [1, 4], "desc": "📈 2단계: 수익 테스트 모드 (하루 2회 광고)"}
+    # 3단계: 91일 이후 (하루 3회 광고)
     else:
         return {"ad_slots": [1, 3, 5], "desc": "💰 3단계: 수익 최적화 모드 (하루 3회 광고)"}
 
@@ -72,7 +77,7 @@ KEYWORDS_INFO = [
 ]
 
 # ==========================================
-# [4. 쿠팡 API 엔진]
+# [4. 쿠팡 API 엔진 (HMAC 서명 로직)]
 # ==========================================
 def fetch_coupang_get_api(path, query_string=""):
     method = "GET"
@@ -91,38 +96,38 @@ def fetch_coupang_get_api(path, query_string=""):
     except: return None
 
 # ==========================================
-# [5. AI 생성 엔진 & 링크 정제]
+# [5. AI 생성 엔진 (링크 정제 및 표 보호)]
 # ==========================================
 def generate_content_final(post_type, keyword, product=None):
     try:
         genai.configure(api_key=GEMINI_API_KEY)
+        # [성공 포인트] 애드픽 코드 규격
         model = genai.GenerativeModel('models/gemini-2.5-flash')
 
         persona = "30대 여성 마케팅 전문가 '토리놀이'입니다. 다정하고 친근한 말투(~해요, ✨💖)로 작성하세요."
 
         if post_type == "AD" and product:
-            prompt = f"{persona} 주제: '{product['productName']}' 리뷰. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 [/BODY] 형식 엄수. **주의: 본문 내용에 제품 URL 주소는 절대 적지 마세요.**"
+            prompt = f"{persona} 주제: '{product['productName']}' 리뷰. [TITLE] 제목 [/TITLE] [BODY] 본문 2000자 이상 상세히 [/BODY] 형식 엄수. **주의: 본문 내용에 제품 URL 주소는 절대 적지 마세요.**"
         else:
-            # [수정] 표를 반드시 HTML 형식(<table>)으로 작성하도록 지시했습니다.
-            prompt = f"{persona} 주제: '{keyword}'의 효능과 효과적으로 먹는 법 가이드. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 상세히 [/BODY] 형식 엄수. 영양 성분이나 비교표가 필요하다면 마크다운 형식이 아닌 **반드시 HTML 태그(table, tr, td)를 사용해서 작성하세요.**"
+            prompt = f"{persona} 주제: '{keyword}'의 효능과 효과적으로 먹는 법 가이드. [TITLE] 제목 [/TITLE] [BODY] 본문 1500자 이상 상세히 [/BODY] 형식 엄수. 영양 성분이나 비교표는 **반드시 HTML 태그(table, tr, td)를 사용하여 작성하세요.**"
 
         res = model.generate_content(prompt).text
         
         title = res.split('[TITLE]')[1].split('[/TITLE]')[0].strip()
         body = res.split('[BODY]')[1].split('[/BODY]')[0].strip()
         
+        # [정제] 텍스트 링크 및 별표 문구 삭제
         clean_body = re.sub(r'https?://\S+', '', body) 
         clean_body = re.sub(r'\[.*?\]\(.*?\)', '', clean_body) 
         clean_body = re.sub(r'⭐.*?⭐', '', clean_body)
         clean_body = re.sub(r'\*\*|##|`|#', '', clean_body) 
         
-        # [수정] 줄바꿈 처리 시 HTML 태그(<table>, <tr> 등)가 포함된 줄은 <p> 태그를 씌우지 않도록 방어 로직을 추가했습니다.
+        # [수정] 표(Table) 태그 보호 로직
         lines = clean_body.split('\n')
         wrapped_lines = []
         for line in lines:
             stripped = line.strip()
             if not stripped: continue
-            # HTML 태그로 시작하는 줄은 그대로 두고, 일반 텍스트만 <p>로 감쌉니다.
             if stripped.startswith('<') and stripped.endswith('>'):
                 wrapped_lines.append(stripped)
             else:
@@ -141,26 +146,32 @@ def generate_content_final(post_type, keyword, product=None):
         print(f"❌ AI 생성 오류: {e}")
         return None, None
 
-# 나머지 코드는 그대로 두고, 아래 함수 부분만 URL 출력 로직을 추가했습니다.
-
+# ==========================================
+# [6. 블로그 발행 (URL 로그 출력 및 인증 체크)]
+# ==========================================
 def post_to_blog(title, content):
     try:
-        creds = Credentials(None, refresh_token=REFRESH_TOKEN, token_uri="https://oauth2.googleapis.com/token", client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
+        creds = Credentials(None, 
+                           refresh_token=REFRESH_TOKEN, 
+                           token_uri="https://oauth2.googleapis.com/token", 
+                           client_id=CLIENT_ID, 
+                           client_secret=CLIENT_SECRET)
         if not creds.valid: creds.refresh(Request())
         service = build('blogger', 'v3', credentials=creds)
         
-        # [수정] 발행 결과를 res 변수에 담습니다.
         res = service.posts().insert(blogId=BLOG_ID, body={"title": title, "content": content}).execute()
         
-        # [핵심] 발행된 글의 실제 주소를 로그에 출력합니다.
         if 'url' in res:
-            print(f"🔗 발행된 글 주소: {res.get('url')}")
+            print(f"🔗 발행 성공! 주소: {res.get('url')}")
             return True
         return False
     except Exception as e:
         print(f"❌ 블로그 발행 실패 상세: {e}")
         return False
 
+# ==========================================
+# [7. 메인 컨트롤러]
+# ==========================================
 def main():
     strategy = get_daily_strategy()
     hour_idx = datetime.now().hour // 4 
@@ -173,20 +184,20 @@ def main():
         if not products: products = fetch_coupang_get_api("/products/bestcategories/1024", "limit=10")
         if products:
             prod = products[random.randint(0, len(products)-1)]
-            print(f"✅ 광고 모드: {prod['productName']} 수집 성공")
+            print(f"✅ 광고 수집: {prod['productName']}")
             title, html = generate_content_final("AD", prod['productName'], prod)
             if title and html:
                 if post_to_blog(title, html):
-                    print("🎉 [최종] 광고 포스팅 발행 성공!")
+                    print("🎉 [최종] 광고 포스팅 작업 완료")
                     return
-    
+
     # 정보글 모드
     kw = random.choice(KEYWORDS_INFO)
     print(f"📘 정보 모드: '{kw}' 생성 중")
     title, html = generate_content_final("INFO", kw)
     if title and html:
-        post_to_blog(title, html)
-        print(f"🎉 [최종] '{kw}' 정보 포스팅 발행 성공!")
+        if post_to_blog(title, html):
+            print(f"✅ '{kw}' 정보 포스팅 작업 완료")
 
 if __name__ == "__main__":
     main()
