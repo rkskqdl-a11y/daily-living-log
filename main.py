@@ -141,14 +141,25 @@ def generate_content_final(post_type, keyword, product=None):
         print(f"❌ AI 생성 오류: {e}")
         return None, None
 
+# 나머지 코드는 그대로 두고, 아래 함수 부분만 URL 출력 로직을 추가했습니다.
+
 def post_to_blog(title, content):
     try:
         creds = Credentials(None, refresh_token=REFRESH_TOKEN, token_uri="https://oauth2.googleapis.com/token", client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
         if not creds.valid: creds.refresh(Request())
         service = build('blogger', 'v3', credentials=creds)
-        service.posts().insert(blogId=BLOG_ID, body={"title": title, "content": content}).execute()
-        return True
-    except: return False
+        
+        # [수정] 발행 결과를 res 변수에 담습니다.
+        res = service.posts().insert(blogId=BLOG_ID, body={"title": title, "content": content}).execute()
+        
+        # [핵심] 발행된 글의 실제 주소를 로그에 출력합니다.
+        if 'url' in res:
+            print(f"🔗 발행된 글 주소: {res.get('url')}")
+            return True
+        return False
+    except Exception as e:
+        print(f"❌ 블로그 발행 실패 상세: {e}")
+        return False
 
 def main():
     strategy = get_daily_strategy()
